@@ -1,0 +1,191 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="theme-color" content="#122945" />
+  <title>Painel Comercial | UNIFAHE</title>
+  <link rel="icon" href="assets/favicon.ico" />
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <script src="https://unpkg.com/lucide@0.468.0/dist/umd/lucide.min.js" defer></script>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <div id="loginView" class="login-view">
+    <div class="login-brand-shape" aria-hidden="true"></div>
+    <main class="login-shell">
+      <div class="login-heading">
+        <img src="assets/logo-light.png" alt="UNIFAHE" class="login-logo" />
+        <span class="system-label">PAINEL COMERCIAL</span>
+        <h1>Central comercial</h1>
+        <p>Acesse vendas, times, FCA, campanhas e dashboards em um único ambiente.</p>
+      </div>
+
+      <form id="loginForm" class="login-form" autocomplete="off">
+        <label class="field">
+          <span>E-mail</span>
+          <div class="field-control">
+            <i data-lucide="mail"></i>
+            <input id="email" type="email" placeholder="seuemail@unifahe.com.br" required />
+          </div>
+        </label>
+
+        <label class="field">
+          <span>Senha</span>
+          <div class="field-control">
+            <i data-lucide="lock-keyhole"></i>
+            <input id="password" type="password" placeholder="Digite sua senha" required />
+            <button id="togglePassword" class="icon-button password-toggle" type="button" aria-label="Mostrar senha">
+              <i data-lucide="eye"></i>
+            </button>
+          </div>
+        </label>
+
+        <p id="loginError" class="login-error" role="alert"></p>
+        <button class="primary-button" type="submit">Entrar no painel</button>
+
+        <div class="demo-access">
+          <span>Acessos de demonstração</span>
+          <div class="demo-buttons">
+            <button type="button" data-demo="vendedor">Vendedor</button>
+            <button type="button" data-demo="gestor">Gestor</button>
+          </div>
+        </div>
+      </form>
+    </main>
+  </div>
+
+  <div id="appView" class="app-view is-hidden">
+    <aside id="sidebar" class="sidebar">
+      <div class="sidebar-top">
+        <div class="brand-wrap">
+          <img src="assets/logo-white.png" alt="UNIFAHE" class="brand-full" />
+          <img src="assets/favicon.ico" alt="" class="brand-mark" />
+        </div>
+
+        <button id="sidebarToggle" class="sidebar-toggle" type="button" aria-label="Recolher menu">
+          <i data-lucide="chevron-left"></i>
+        </button>
+      </div>
+
+      <nav id="sidebarNav" class="sidebar-nav" aria-label="Menu principal"></nav>
+
+      <div class="sidebar-footer">
+        <button id="logoutButton" class="nav-item logout-item" type="button">
+          <span class="nav-icon"><i data-lucide="log-out"></i></span>
+          <span class="nav-label">Sair</span>
+        </button>
+      </div>
+    </aside>
+
+    <section class="app-shell">
+      <header class="topbar">
+        <div class="topbar-left">
+          <button id="mobileMenuButton" class="mobile-menu-button" type="button" aria-label="Abrir menu">
+            <i data-lucide="menu"></i>
+          </button>
+          <div>
+            <span class="breadcrumb">Comercial</span>
+            <strong id="pageTitle">Início</strong>
+          </div>
+        </div>
+
+        <div class="profile-area">
+          <div class="profile-copy">
+            <strong id="userName">Usuário</strong>
+            <span id="userRole">Vendedor</span>
+          </div>
+          <div id="userAvatar" class="avatar">U</div>
+        </div>
+      </header>
+
+      <main id="content" class="content"></main>
+    </section>
+
+    <button id="mobileOverlay" class="mobile-overlay" type="button" aria-label="Fechar menu"></button>
+  </div>
+
+  <template id="homeTemplate">
+    <section class="page-intro">
+      <div>
+        <span class="eyebrow">VISÃO COMERCIAL</span>
+        <h2>Seu ambiente de trabalho</h2>
+        <p>Indicadores essenciais no topo e espaço amplo para os módulos que serão conectados depois.</p>
+      </div>
+      <div class="today-pill"><i data-lucide="calendar-days"></i><span id="todayText"></span></div>
+    </section>
+
+    <section class="metrics-grid" aria-label="Indicadores principais">
+      <article class="metric-card">
+        <div class="metric-icon"><i data-lucide="badge-dollar-sign"></i></div>
+        <div>
+          <span>Vendas hoje</span>
+          <strong>—</strong>
+          <small>Aguardando integração</small>
+        </div>
+      </article>
+      <article class="metric-card">
+        <div class="metric-icon"><i data-lucide="wallet-cards"></i></div>
+        <div>
+          <span>Faturamento do mês</span>
+          <strong>—</strong>
+          <small>Aguardando integração</small>
+        </div>
+      </article>
+      <article class="metric-card">
+        <div class="metric-icon"><i data-lucide="target"></i></div>
+        <div>
+          <span>Meta mensal</span>
+          <strong>—</strong>
+          <small>Aguardando integração</small>
+        </div>
+      </article>
+    </section>
+
+    <section class="workspace-grid">
+      <article class="workspace-main">
+        <div class="section-heading">
+          <div>
+            <span class="section-kicker">DESEMPENHO</span>
+            <h3>Visão geral</h3>
+          </div>
+          <span class="status-chip">Em preparação</span>
+        </div>
+        <div class="empty-chart">
+          <div class="empty-visual"><i data-lucide="chart-no-axes-combined"></i></div>
+          <strong>Área reservada para o desempenho comercial</strong>
+          <span>Os gráficos serão conectados quando a fonte de dados for definida.</span>
+        </div>
+      </article>
+
+      <aside class="quick-panel">
+        <div class="section-heading compact">
+          <div>
+            <span class="section-kicker">ATALHOS</span>
+            <h3>Acesso rápido</h3>
+          </div>
+        </div>
+        <div id="quickLinks" class="quick-links"></div>
+      </aside>
+    </section>
+  </template>
+
+  <template id="blankTemplate">
+    <section class="page-intro simple">
+      <div>
+        <span class="eyebrow">MÓDULO</span>
+        <h2 id="blankTitle">Página</h2>
+        <p id="blankDescription">Estrutura pronta para receber o conteúdo.</p>
+      </div>
+    </section>
+    <section class="blank-canvas">
+      <div class="blank-canvas-mark"><i data-lucide="layout-dashboard"></i></div>
+      <span>Conteúdo em branco por enquanto</span>
+    </section>
+  </template>
+
+  <script src="app.js" defer></script>
+</body>
+</html>
