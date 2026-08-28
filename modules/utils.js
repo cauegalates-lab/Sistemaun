@@ -14,6 +14,13 @@ export function formatDateBR(iso) {
   return `${d}/${m}/${y}`;
 }
 
+export function formatDateTimeBR(iso) {
+  if (!iso) return '—';
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return '—';
+  return new Intl.DateTimeFormat('pt-BR', { dateStyle:'short', timeStyle:'short' }).format(date);
+}
+
 export function todayISO() {
   const now = new Date();
   const offset = now.getTimezoneOffset() * 60000;
@@ -52,6 +59,14 @@ export function normalizeSale(raw) {
     state: raw.state || '',
     origin: raw.origin || '',
     course_quantity: Number(raw.course_quantity || 1),
+    audit_status: ['ok','not_ok'].includes(raw.audit_status) ? raw.audit_status : 'pending',
+    audited_by: raw.audited_by || '',
+    audited_at: raw.audited_at || '',
+    receipt_path: raw.receipt_path || '',
+    receipt_name: raw.receipt_name || '',
+    receipt_type: raw.receipt_type || '',
+    receipt_size: Number(raw.receipt_size || 0),
+    receipt_uploaded_at: raw.receipt_uploaded_at || '',
     created_at: raw.created_at || new Date().toISOString(),
     sheet_sync_status: raw.sheet_sync_status || 'pending'
   };
@@ -59,4 +74,11 @@ export function normalizeSale(raw) {
 
 export function paymentLabel(type) {
   return ({ cartao: 'Cartão', boleto: 'Boleto', sem_taxa_migracao: 'Sem taxa migração' })[type] || type || '—';
+}
+
+export function fileSize(bytes) {
+  const n = Number(bytes || 0);
+  if (n < 1024) return `${n} B`;
+  if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`;
+  return `${(n / (1024 * 1024)).toFixed(1)} MB`;
 }

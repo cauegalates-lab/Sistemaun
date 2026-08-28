@@ -1,50 +1,47 @@
-# Painel Comercial UNIFAHE — v2
+# Painel Comercial UNIFAHE — V4
 
-Projeto reestruturado para o fluxo solicitado, sem anexar "remendos" ao código antigo.
+Versão reorganizada do painel comercial, com foco em leitura rápida do dashboard, auditoria simples de vendas e comprovantes.
 
-## O que está pronto
-- Menu lateral com seta apenas no hover.
-- Perfis vendedor e gestor.
-- Área Vendas com formulário expansível no topo.
-- Vendedor preenchido pelo login; gestor pode escolher vendedor.
-- Campos condicionais por pagamento e modalidade.
-- Boleto calcula automaticamente `valor da taxa/parcela × quantidade de vezes`.
-- Registro em tabela compacta e responsiva.
-- Dashboard geral exclusivo do gestor no Início.
-- Dashboard individual para vendedor e gestor.
-- Filtros por período, metas, projeção, distribuição e resumo geral.
-- Todos os indicadores e gráficos são calculados a partir das vendas.
-- Banco de dados como fonte principal via API da Vercel + Supabase.
-- Google Sheets recebe espelho em segundo plano pelo webhook.
-- Fallback local apenas para demonstração quando o banco ainda não estiver configurado.
+## O que mudou nesta versão
 
-## Login de demonstração
-- Vendedor: `vendedor@unifahe.com.br` / `123456`
+- Dashboard com menos cards e maior integração visual com a página.
+- Faixa única de indicadores mensais e uma linha compacta para o dia selecionado.
+- Metas de faturamento e matrículas com realizado, meta, quanto falta e percentual na mesma linha.
+- Gráficos reorganizados em três áreas: projeção das metas, distribuição por pagamento e faturamento por modalidade.
+- Vendas marcadas como `Não OK` são desconsideradas dos indicadores do dashboard.
+- Primeira coluna da área Vendas dedicada à auditoria:
+  - `Pendente` ao criar a venda;
+  - Gestor pode definir apenas `Venda OK` ou `Venda não OK`;
+  - Vendedor apenas visualiza o resultado da auditoria.
+- Última coluna dedicada ao comprovante da venda.
+- Comprovantes aceitam PDF, JPG, PNG, WEBP, DOC, DOCX e ODT, até 3 MB.
+- No modo local, comprovantes ficam no IndexedDB do navegador.
+- Com Supabase configurado, comprovantes ficam em bucket privado `sales-receipts` e são entregues pela API da Vercel.
+- Linha da venda pode ser expandida para detalhes secundários sem aumentar o número de colunas visíveis.
+
+## Acessos de demonstração
+
 - Gestor: `gestor@unifahe.com.br` / `123456`
+- Vendedor: `vendedor@unifahe.com.br` / `123456`
 
 ## Banco de dados
-1. Crie um projeto Supabase.
-2. Execute `supabase.sql` no SQL Editor.
-3. Na Vercel, configure as variáveis de `.env.example`.
-4. Faça o deploy.
 
-A `SUPABASE_SERVICE_ROLE_KEY` nunca fica no navegador; ela é usada somente em `/api/sales`.
+1. Crie um projeto no Supabase.
+2. Execute o arquivo `supabase.sql` no SQL Editor.
+3. Na Vercel configure:
+   - `SUPABASE_URL`
+   - `SUPABASE_SERVICE_ROLE_KEY`
+4. Para espelhar as vendas em uma planilha, configure também:
+   - `GOOGLE_SHEETS_WEBHOOK_URL`
+   - `GOOGLE_SHEETS_WEBHOOK_TOKEN`
 
-## Google Sheets
-O painel funciona sem a planilha. A planilha é apenas um espelho. A API envia um POST para `GOOGLE_SHEETS_WEBHOOK_URL` depois da gravação no banco, usando o evento `sale.created`.
+O banco é a fonte principal. A planilha continua sendo apenas um espelho em segundo plano.
 
-Payload:
-```json
-{ "event": "sale.created", "sale": { "...": "registro salvo" } }
-```
+## Estrutura
 
-## Desenvolvimento local
-Use um servidor HTTP (por exemplo `npx vercel dev`) porque o projeto usa módulos ES e rotas `/api`.
-
-
-## Ajustes visuais V3
-- Dashboard com menos cards individuais e toolbar superior reorganizada.
-- Metas de faturamento e matrículas agrupadas com realizado, meta, faltante e progresso.
-- Topo de Vendas reorganizado com resumo integrado e fonte de dados em posição contextual.
-- Tabela de vendas com tipografia maior.
-- Tipografia prioriza Neue Montreal e Paralucent, conforme identidade oficial UNIFAHE; Inter permanece apenas como fallback web quando as fontes licenciadas não estiverem instaladas no dispositivo.
+- `index.html` — estrutura principal.
+- `styles.css` — visual completo, sem folhas de correção sobrepostas.
+- `app.js` — navegação, vendas, auditoria, comprovantes e dashboard.
+- `modules/` — catálogo, cálculos, utilitários e repositório de dados.
+- `api/` — endpoints Vercel para vendas, auditoria e comprovantes.
+- `supabase.sql` — estrutura do banco e bucket privado de comprovantes.
