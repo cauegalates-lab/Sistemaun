@@ -55,14 +55,24 @@ function salesSummary(rows){ return { count:rows.length, total:rows.reduce((a,r)
 
 function renderSales(){
   const ownRows=currentUser.role==='gestor'?salesCache:salesCache.filter(r=>r.seller_name===currentUser.name); const summary=salesSummary(ownRows);
+  const sourceLabel=dataSource==='database'?'Banco de dados principal':'Demonstração local';
   content.innerHTML=`
-    <section class="page-intro sales-intro"><div><span class="eyebrow">OPERAÇÃO COMERCIAL</span><h2>Vendas</h2><p>Lançamento e consulta das vendas. O banco de dados é a fonte principal; a planilha recebe uma cópia em segundo plano.</p></div><button id="toggleSaleForm" class="primary-action"><i data-lucide="plus"></i>Adicionar venda</button></section>
-    <section id="saleFormPanel" class="sale-entry-panel is-collapsed"></section>
-    <section class="sales-strip">
-      <div><span>Vendas registradas</span><strong>${summary.count}</strong></div><div><span>Valor total</span><strong>${money.format(summary.total)}</strong></div><div><span>Matrículas</span><strong>${summary.courses}</strong></div><div class="data-source"><span>Fonte ativa</span><strong>${dataSource==='database'?'Banco de dados':'Demonstração local'}</strong></div>
+    <section class="sales-command">
+      <div class="sales-title-copy">
+        <span class="eyebrow">OPERAÇÃO COMERCIAL</span>
+        <h2>Vendas</h2>
+        <div class="sales-sector-note"><i data-lucide="database"></i><span><strong>${sourceLabel}</strong> • Os lançamentos alimentam os dashboards; a planilha funciona apenas como registro em segundo plano.</span></div>
+      </div>
+      <div class="sales-command-summary" aria-label="Resumo das vendas">
+        <div class="sales-stat"><span>Vendas registradas</span><strong>${summary.count}</strong></div>
+        <div class="sales-stat"><span>Valor total</span><strong>${money.format(summary.total)}</strong></div>
+        <div class="sales-stat"><span>Matrículas</span><strong>${summary.courses}</strong></div>
+      </div>
+      <button id="toggleSaleForm" class="primary-action sales-add-button"><i data-lucide="plus"></i>Adicionar venda</button>
     </section>
+    <section id="saleFormPanel" class="sale-entry-panel is-collapsed"></section>
     <section class="sales-list-section">
-      <div class="section-heading"><div><span class="section-kicker">REGISTROS</span><h3>Vendas lançadas</h3></div><div class="table-actions"><input id="salesSearch" class="compact-input" placeholder="Buscar aluno, curso ou vendedor"/><select id="salesPaymentFilter" class="compact-select"><option value="">Todos os pagamentos</option>${PAYMENT_TYPES.map(p=>`<option value="${p.value}">${p.label}</option>`).join('')}</select></div></div>
+      <div class="section-heading"><div><span class="section-kicker">REGISTROS</span><h3>Vendas lançadas</h3><p>Histórico dos lançamentos disponíveis para consulta.</p></div><div class="table-actions"><input id="salesSearch" class="compact-input" placeholder="Buscar aluno, curso ou vendedor"/><select id="salesPaymentFilter" class="compact-select"><option value="">Todos os pagamentos</option>${PAYMENT_TYPES.map(p=>`<option value="${p.value}">${p.label}</option>`).join('')}</select></div></div>
       <div id="salesTableWrap" class="sales-table-wrap"></div>
     </section>`;
   $('#toggleSaleForm').onclick=()=>{ const panel=$('#saleFormPanel'); panel.classList.toggle('is-collapsed'); if(!panel.dataset.ready) mountSaleForm(panel); $('#toggleSaleForm').innerHTML=panel.classList.contains('is-collapsed')?'<i data-lucide="plus"></i>Adicionar venda':'<i data-lucide="x"></i>Fechar lançamento'; refreshIcons(); };
@@ -130,12 +140,17 @@ function renderDashboard({mode='geral',seller=''}){
 function dashboardMarkup({mode,selectedSeller,from,to,goals}){
   const canChooseSeller=currentUser.role==='gestor';
   return `<section class="dashboard-head">
-    <div><span class="eyebrow">${mode==='geral'?'GESTÃO COMERCIAL':'DESEMPENHO INDIVIDUAL'}</span><h2>${mode==='geral'?'Dashboard geral':'Dashboard vendedor'}</h2><p>${mode==='geral'?'Visão consolidada dos resultados lançados em Vendas.':'Indicadores do vendedor alimentados diretamente pelos próprios lançamentos.'}</p></div>
-    <div class="dashboard-controls">
-      ${mode==='geral'?`<button id="switchDashboard" class="orange-action"><i data-lucide="user-round"></i>Dashboard individual</button>`:`${currentUser.role==='gestor'?'<button id="switchDashboard" class="navy-action"><i data-lucide="layout-dashboard"></i>Dashboard geral</button>':''}`}
-      ${mode==='individual'&&canChooseSeller?`<label class="filter-field seller-filter"><span>VENDEDOR</span><select id="dashSeller">${SELLERS.map(v=>`<option ${v===selectedSeller?'selected':''}>${v}</option>`).join('')}</select></label>`:''}
-      <div class="date-filter"><label class="filter-field"><span>DE</span><input id="dashFrom" type="date" value="${from}"></label><label class="filter-field"><span>ATÉ</span><input id="dashTo" type="date" value="${to}"></label><button id="applyDash" class="navy-action">Filtrar</button></div>
-      <button id="saveDashboard" class="navy-action"><i data-lucide="bookmark-plus"></i>Salvar dashboard</button><button id="openSavedDashboards" class="navy-action"><i data-lucide="folder-clock"></i>Dashboards salvos</button>
+    <div class="dashboard-title-block"><span class="eyebrow">${mode==='geral'?'GESTÃO COMERCIAL':'DESEMPENHO INDIVIDUAL'}</span><h2>${mode==='geral'?'Dashboard geral':'Dashboard vendedor'}</h2><p>${mode==='geral'?'Visão consolidada dos resultados lançados em Vendas.':'Indicadores do vendedor alimentados diretamente pelos próprios lançamentos.'}</p></div>
+    <div class="dashboard-toolbar">
+      <div class="dashboard-toolbar-main">
+        ${mode==='geral'?`<button id="switchDashboard" class="orange-action"><i data-lucide="user-round"></i>Dashboard individual</button>`:`${currentUser.role==='gestor'?'<button id="switchDashboard" class="navy-action"><i data-lucide="layout-dashboard"></i>Dashboard geral</button>':''}`}
+        ${mode==='individual'&&canChooseSeller?`<label class="filter-field seller-filter"><span>VENDEDOR</span><select id="dashSeller">${SELLERS.map(v=>`<option ${v===selectedSeller?'selected':''}>${v}</option>`).join('')}</select></label>`:''}
+        <div class="date-filter"><label class="filter-field"><span>DE</span><input id="dashFrom" type="date" value="${from}"></label><label class="filter-field"><span>ATÉ</span><input id="dashTo" type="date" value="${to}"></label><button id="applyDash" class="navy-action"><i data-lucide="sliders-horizontal"></i>Filtrar</button></div>
+      </div>
+      <div class="dashboard-toolbar-actions">
+        <button id="saveDashboard" class="toolbar-action"><i data-lucide="bookmark-plus"></i><span>Salvar dashboard</span></button>
+        <button id="openSavedDashboards" class="toolbar-action"><i data-lucide="folder-clock"></i><span>Dashboards salvos</span></button>
+      </div>
     </div>
   </section>
   <section id="savedDashboardsPanel" class="saved-dashboards-panel is-hidden"></section>
@@ -152,12 +167,16 @@ function dashboardMarkup({mode,selectedSeller,from,to,goals}){
       ${metricBox('user-plus','Matrículas Diárias','dMatriculas','dLancamentos','LANÇ.','metric-red')}
     </div>
   </section>
-  <section class="goals-row">
-    <div class="month-marker"><span>METAS DO MÊS</span><strong id="goalMonthLabel"></strong></div>
-    <label class="goal-input"><span>META FATURADOS</span><input id="goalRevenueInput" inputmode="decimal" value="${goals.revenue||''}" placeholder="R$ 0,00"></label>
-    <label class="goal-input"><span>META MATRÍCULAS</span><input id="goalEnrollInput" type="number" min="0" value="${goals.enroll||''}" placeholder="0"></label>
-    <div class="goal-progress"><div><span>FATURADOS</span><strong id="goalRevenueText">—</strong></div><small id="goalRevenueMissing">Faltam —</small><div class="progress-track"><span id="revenueProgress"></span></div></div>
-    <div class="goal-progress"><div><span>MATRÍCULAS</span><strong id="goalEnrollText">—</strong></div><small id="goalEnrollMissing">Faltam —</small><div class="progress-track"><span id="enrollProgress"></span></div></div>
+  <section class="goals-panel">
+    <div class="goal-month"><span>METAS DO MÊS</span><strong id="goalMonthLabel"></strong></div>
+    <div class="goal-block">
+      <div class="goal-block-top"><label class="goal-input"><span>META FATURADOS</span><input id="goalRevenueInput" inputmode="decimal" value="${goals.revenue||''}" placeholder="R$ 0,00"></label><div class="goal-result"><span>REALIZADO / META</span><strong id="goalRevenueText">—</strong><small id="goalRevenueMissing">Faltam —</small></div></div>
+      <div class="progress-track"><span id="revenueProgress"></span></div>
+    </div>
+    <div class="goal-block">
+      <div class="goal-block-top"><label class="goal-input"><span>META MATRÍCULAS</span><input id="goalEnrollInput" type="number" min="0" value="${goals.enroll||''}" placeholder="0"></label><div class="goal-result"><span>REALIZADO / META</span><strong id="goalEnrollText">—</strong><small id="goalEnrollMissing">Faltam —</small></div></div>
+      <div class="progress-track"><span id="enrollProgress"></span></div>
+    </div>
   </section>
   <section class="dashboard-grid">
     <article class="chart-panel"><div class="panel-title">Resultados por Categoria</div><div class="chart-box"><canvas id="categoryChart"></canvas></div></article>
@@ -166,7 +185,7 @@ function dashboardMarkup({mode,selectedSeller,from,to,goals}){
     <article class="summary-panel"><div class="panel-title">Resumo Geral</div><div class="summary-top"><div><span>FATURADO MENSAL</span><strong id="summaryRevenue">—</strong></div><div><span>MATRÍCULAS MENSAIS</span><strong id="summaryEnroll">—</strong></div></div><p id="summaryBase" class="summary-base"></p>${summaryLine('Meta faturados','summaryGoalRevenue')}${summaryLine('Meta matrículas','summaryGoalEnroll')}${summaryLine('Quantidade de vendas lançadas no mês','summarySales')}${summaryLine('Qtd. cartão no mês','summaryCards')}${summaryLine('Qtd. boletos no mês','summaryBoletos')}${summaryLine('Faturado no dia selecionado','summaryDayRevenue')}${summaryLine('Matrículas no dia selecionado','summaryDayEnroll')}</article>
   </section>`;
 }
-function metricBox(icon,title,mainId,subId,subLabel,cls){return `<article class="dashboard-metric"><div class="metric-round ${cls}"><i data-lucide="${icon}"></i></div><h3>${title}</h3><div class="metric-values"><div><span>${title.includes('Matrícula')?'QTD.':title.includes('Taxa')?'TAXA':'VALOR'}</span><strong id="${mainId}">—</strong></div><div><span>${subLabel}</span><strong id="${subId}">—</strong></div></div></article>`;}
+function metricBox(icon,title,mainId,subId,subLabel,cls){return `<div class="dashboard-metric"><div class="metric-heading"><span class="metric-round ${cls}"><i data-lucide="${icon}"></i></span><h3>${title}</h3></div><div class="metric-values"><div><span>${title.includes('Matrícula')?'QTD.':title.includes('Taxa')?'TAXA':'VALOR'}</span><strong id="${mainId}">—</strong></div><div><span>${subLabel}</span><strong id="${subId}">—</strong></div></div></div>`;}
 function summaryLine(label,id){return `<div class="summary-line"><span>${label}</span><strong id="${id}">—</strong></div>`;}
 
 function bindDashboard({mode}){

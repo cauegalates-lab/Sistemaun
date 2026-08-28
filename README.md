@@ -40,3 +40,11 @@ Payload:
 
 ## Desenvolvimento local
 Use um servidor HTTP (por exemplo `npx vercel dev`) porque o projeto usa módulos ES e rotas `/api`.
+
+
+## Ajustes visuais V3
+- Dashboard com menos cards individuais e toolbar superior reorganizada.
+- Metas de faturamento e matrículas agrupadas com realizado, meta, faltante e progresso.
+- Topo de Vendas reorganizado com resumo integrado e fonte de dados em posição contextual.
+- Tabela de vendas com tipografia maior.
+- Tipografia prioriza Neue Montreal e Paralucent, conforme identidade oficial UNIFAHE; Inter permanece apenas como fallback web quando as fontes licenciadas não estiverem instaladas no dispositivo.

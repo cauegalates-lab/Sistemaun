@@ -83,7 +83,7 @@ export function fillDashboardText(root, data) {
 export function renderCharts(root, data, { from, to }) {
   destroyCharts();
   if (!window.Chart) return;
-  Chart.defaults.font.family = 'Inter, sans-serif';
+  Chart.defaults.font.family = '"Neue Montreal", "Inter", sans-serif';
   Chart.defaults.color = '#667085';
   const navy = '#122945', orange = '#ee5a00', blue = '#2d67e8', gray = '#9aa9bd', green = '#22b86b', purple = '#8657e5';
   const m = data.metrics;
