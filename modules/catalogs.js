@@ -41,7 +41,8 @@ export const COURSES = [
 
 export const DEMO_USERS = {
   'vendedor@unifahe.com.br': { password: '123456', id: 'seller-caua', name: 'Cauê Galates', role: 'vendedor' },
-  'gestor@unifahe.com.br': { password: '123456', id: 'manager-demo', name: 'Gestor UNIFAHE', role: 'gestor' }
+  'gestor@unifahe.com.br': { password: '123456', id: 'manager-demo', name: 'Gestor UNIFAHE', role: 'gestor' },
+  'auditoria@unifahe.com.br': { password: '123456', id: 'audit-demo', name: 'Auditoria UNIFAHE', role: 'auditoria' }
 };
 
 export const SELLERS = [

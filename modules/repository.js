@@ -1,18 +1,18 @@
-import { normalizeSale } from './utils.js';
+import { normalizeSale, uid } from './utils.js';
 
 const LOCAL_KEY = 'unifahe.sales.demo.v2';
 const DB_NAME = 'unifahe-commercial-files';
-const DB_STORE = 'receipts';
+const LEGACY_RECEIPT_STORE = 'receipts';
+const RECEIPT_STORE = 'receipts_v2';
 const MAX_RECEIPT_BYTES = 3 * 1024 * 1024;
+const MAX_RECEIPTS = 3;
 
 function readLocal() {
   try { return (JSON.parse(localStorage.getItem(LOCAL_KEY) || '[]')).map(normalizeSale); }
   catch { return []; }
 }
 
-function writeLocal(rows) {
-  localStorage.setItem(LOCAL_KEY, JSON.stringify(rows));
-}
+function writeLocal(rows) { localStorage.setItem(LOCAL_KEY, JSON.stringify(rows)); }
 
 function updateLocalSale(id, patch) {
   const rows = readLocal();
@@ -35,21 +35,22 @@ async function requestJSON(url, options = {}) {
 
 function openReceiptDB() {
   return new Promise((resolve, reject) => {
-    const request = indexedDB.open(DB_NAME, 1);
+    const request = indexedDB.open(DB_NAME, 2);
     request.onupgradeneeded = () => {
       const db = request.result;
-      if (!db.objectStoreNames.contains(DB_STORE)) db.createObjectStore(DB_STORE, { keyPath: 'sale_id' });
+      if (!db.objectStoreNames.contains(LEGACY_RECEIPT_STORE)) db.createObjectStore(LEGACY_RECEIPT_STORE, { keyPath: 'sale_id' });
+      if (!db.objectStoreNames.contains(RECEIPT_STORE)) db.createObjectStore(RECEIPT_STORE, { keyPath: 'id' });
     };
     request.onsuccess = () => resolve(request.result);
     request.onerror = () => reject(request.error);
   });
 }
 
-async function receiptStore(mode, value) {
+async function fileStore(storeName, mode, value) {
   const db = await openReceiptDB();
   return new Promise((resolve, reject) => {
-    const tx = db.transaction(DB_STORE, mode === 'get' ? 'readonly' : 'readwrite');
-    const store = tx.objectStore(DB_STORE);
+    const tx = db.transaction(storeName, mode === 'get' ? 'readonly' : 'readwrite');
+    const store = tx.objectStore(storeName);
     const request = mode === 'put' ? store.put(value) : mode === 'get' ? store.get(value) : store.delete(value);
     request.onsuccess = () => resolve(request.result);
     request.onerror = () => reject(request.error);
@@ -65,8 +66,21 @@ async function fileToBase64(file) {
   return btoa(binary);
 }
 
+function receiptMeta(receipt) {
+  return {
+    id: receipt.id,
+    sale_id: receipt.sale_id,
+    path: receipt.path,
+    name: receipt.name,
+    type: receipt.type,
+    size: Number(receipt.size || 0),
+    uploaded_at: receipt.uploaded_at || ''
+  };
+}
+
 export const SalesRepository = {
   MAX_RECEIPT_BYTES,
+  MAX_RECEIPTS,
 
   async list(filters = {}) {
     const params = new URLSearchParams();
@@ -89,9 +103,7 @@ export const SalesRepository = {
       const payload = await requestJSON('/api/sales', { method: 'POST', body: JSON.stringify(normalized) });
       return { sale: normalizeSale(payload.sale), source: 'database' };
     } catch {
-      const rows = readLocal();
-      rows.unshift(normalized);
-      writeLocal(rows);
+      const rows = readLocal(); rows.unshift(normalized); writeLocal(rows);
       return { sale: normalized, source: 'local-demo' };
     }
   },
@@ -99,16 +111,11 @@ export const SalesRepository = {
   async updateAudit(id, status, auditedBy) {
     try {
       const payload = await requestJSON('/api/sales-audit', {
-        method: 'POST',
-        body: JSON.stringify({ sale_id: id, status, audited_by: auditedBy })
+        method: 'POST', body: JSON.stringify({ sale_id: id, status, audited_by: auditedBy })
       });
       return { sale: normalizeSale(payload.sale), source: 'database' };
     } catch (error) {
-      const sale = updateLocalSale(id, {
-        audit_status: status,
-        audited_by: auditedBy,
-        audited_at: new Date().toISOString()
-      });
+      const sale = updateLocalSale(id, { audit_status: status, audited_by: auditedBy, audited_at: new Date().toISOString() });
       if (!sale) throw error;
       return { sale, source: 'local-demo' };
     }
@@ -117,58 +124,54 @@ export const SalesRepository = {
   async saveReceipt(id, file) {
     if (!file) throw new Error('Selecione um arquivo.');
     if (file.size > MAX_RECEIPT_BYTES) throw new Error('O comprovante deve ter no máximo 3 MB.');
+    const existing = readLocal().find(row => row.id === id);
+    if (existing?.receipts?.length >= MAX_RECEIPTS) throw new Error('Esta venda já possui 3 comprovantes.');
     const payload = {
-      sale_id: id,
-      file_name: file.name,
-      file_type: file.type || 'application/octet-stream',
-      file_size: file.size,
-      data_base64: await fileToBase64(file)
+      sale_id: id, file_name: file.name, file_type: file.type || 'application/octet-stream',
+      file_size: file.size, data_base64: await fileToBase64(file)
     };
     try {
       const response = await requestJSON('/api/sales-receipt', { method: 'POST', body: JSON.stringify(payload) });
       return { sale: normalizeSale(response.sale), source: 'database' };
     } catch (error) {
-      const existing = readLocal().find(row => row.id === id);
       if (!existing) throw error;
-      await receiptStore('put', {
-        sale_id: id,
-        blob: file,
-        name: file.name,
-        type: file.type,
-        size: file.size,
-        uploaded_at: new Date().toISOString()
-      });
-      const sale = updateLocalSale(id, {
-        receipt_path: `local://${id}`,
-        receipt_name: file.name,
-        receipt_type: file.type,
-        receipt_size: file.size,
-        receipt_uploaded_at: new Date().toISOString()
-      });
+      if (existing.receipts.length >= MAX_RECEIPTS) throw new Error('Esta venda já possui 3 comprovantes.');
+      const receipt = {
+        id: `local-${uid()}`, sale_id: id, path: '', name: file.name, type: file.type || 'application/octet-stream',
+        size: file.size, uploaded_at: new Date().toISOString()
+      };
+      receipt.path = `local-v2://${receipt.id}`;
+      await fileStore(RECEIPT_STORE, 'put', { ...receipt, blob: file });
+      const sale = updateLocalSale(id, { receipts: [...existing.receipts, receiptMeta(receipt)] });
       return { sale, source: 'local-demo' };
     }
   },
 
-  async receiptUrl(sale) {
-    if (!sale?.receipt_path) return '';
-    if (!String(sale.receipt_path).startsWith('local://')) {
-      return `/api/sales-receipt?id=${encodeURIComponent(sale.id)}&v=${encodeURIComponent(sale.receipt_uploaded_at || '')}`;
+  async receiptUrl(sale, receipt) {
+    if (!sale || !receipt) return '';
+    if (String(receipt.path || '').startsWith('local-v2://')) {
+      const item = await fileStore(RECEIPT_STORE, 'get', receipt.id);
+      return item?.blob ? URL.createObjectURL(item.blob) : '';
     }
-    const item = await receiptStore('get', sale.id);
-    return item?.blob ? URL.createObjectURL(item.blob) : '';
+    if (String(receipt.path || '').startsWith('local://') || String(receipt.id || '').startsWith('legacy-')) {
+      const item = await fileStore(LEGACY_RECEIPT_STORE, 'get', sale.id);
+      return item?.blob ? URL.createObjectURL(item.blob) : '';
+    }
+    return `/api/sales-receipt?receipt_id=${encodeURIComponent(receipt.id)}&v=${encodeURIComponent(receipt.uploaded_at || '')}`;
   },
 
-  async removeReceipt(id) {
+  async removeReceipt(saleId, receiptId) {
     try {
-      const response = await requestJSON(`/api/sales-receipt?id=${encodeURIComponent(id)}`, { method: 'DELETE' });
+      const response = await requestJSON(`/api/sales-receipt?receipt_id=${encodeURIComponent(receiptId)}`, { method: 'DELETE' });
       return { sale: normalizeSale(response.sale), source: 'database' };
     } catch (error) {
-      const existing = readLocal().find(row => row.id === id);
+      const existing = readLocal().find(row => row.id === saleId);
       if (!existing) throw error;
-      await receiptStore('delete', id).catch(() => {});
-      const sale = updateLocalSale(id, {
-        receipt_path: '', receipt_name: '', receipt_type: '', receipt_size: 0, receipt_uploaded_at: ''
-      });
+      const receipt = existing.receipts.find(item => item.id === receiptId);
+      if (!receipt) throw new Error('Comprovante não encontrado.');
+      if (String(receipt.path || '').startsWith('local-v2://')) await fileStore(RECEIPT_STORE, 'delete', receipt.id).catch(() => {});
+      else await fileStore(LEGACY_RECEIPT_STORE, 'delete', saleId).catch(() => {});
+      const sale = updateLocalSale(saleId, { receipts: existing.receipts.filter(item => item.id !== receiptId) });
       return { sale, source: 'local-demo' };
     }
   },
@@ -178,8 +181,12 @@ export const SalesRepository = {
       await requestJSON(`/api/sales?id=${encodeURIComponent(id)}`, { method: 'DELETE' });
       return { source: 'database' };
     } catch {
+      const sale = readLocal().find(r => r.id === id);
+      for (const receipt of sale?.receipts || []) {
+        if (String(receipt.path || '').startsWith('local-v2://')) await fileStore(RECEIPT_STORE, 'delete', receipt.id).catch(() => {});
+        else await fileStore(LEGACY_RECEIPT_STORE, 'delete', id).catch(() => {});
+      }
       writeLocal(readLocal().filter(r => r.id !== id));
-      await receiptStore('delete', id).catch(() => {});
       return { source: 'local-demo' };
     }
   }

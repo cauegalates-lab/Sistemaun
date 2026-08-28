@@ -48,6 +48,7 @@
           <div class="demo-buttons">
             <button type="button" data-demo="vendedor">Vendedor</button>
             <button type="button" data-demo="gestor">Gestor</button>
+            <button type="button" data-demo="auditoria">Auditoria</button>
           </div>
         </div>
       </form>
@@ -72,19 +73,30 @@
     </aside>
 
     <section class="app-shell">
-      <header class="topbar">
-        <div class="topbar-left">
-          <button id="mobileMenuButton" class="mobile-menu-button" type="button" aria-label="Abrir menu"><i data-lucide="menu"></i></button>
-          <div><span class="breadcrumb">Comercial</span><strong id="pageTitle">Início</strong></div>
-        </div>
-        <div class="profile-area">
-          <div class="profile-copy"><strong id="userName">Usuário</strong><span id="userRole">Vendedor</span></div>
-          <div id="userAvatar" class="avatar">U</div>
-        </div>
-      </header>
+      <div class="global-top-controls">
+        <button id="mobileMenuButton" class="mobile-menu-button" type="button" aria-label="Abrir menu"><i data-lucide="menu"></i></button>
+        <button id="profileTrigger" class="profile-trigger" type="button" aria-label="Abrir perfil" aria-expanded="false">
+          <span id="userAvatar" class="avatar">U</span>
+        </button>
+      </div>
       <main id="content" class="content"></main>
     </section>
     <button id="mobileOverlay" class="mobile-overlay" type="button" aria-label="Fechar menu"></button>
+    <button id="profileOverlay" class="profile-overlay" type="button" aria-label="Fechar perfil"></button>
+    <aside id="profileDrawer" class="profile-drawer" aria-label="Perfil do usuário">
+      <div class="profile-drawer-head"><div><span>PERFIL</span><strong>Minha conta</strong></div><button id="profileCloseButton" type="button" aria-label="Fechar perfil"><i data-lucide="x"></i></button></div>
+      <div class="profile-photo-section">
+        <div id="profilePhotoPreview" class="profile-photo-preview">U</div>
+        <div class="profile-identity"><strong id="userName">Usuário</strong><span id="userRole">Vendedor</span></div>
+      </div>
+      <div class="profile-settings-block">
+        <span class="profile-settings-label">FOTO DE PERFIL</span>
+        <p>Use uma imagem para identificar seu perfil no painel.</p>
+        <label class="profile-photo-action" for="profilePhotoInput"><i data-lucide="camera"></i><span>Escolher foto</span></label>
+        <input id="profilePhotoInput" type="file" accept="image/jpeg,image/png,image/webp" hidden>
+        <button id="removeProfilePhoto" class="profile-photo-remove is-hidden" type="button"><i data-lucide="trash-2"></i>Remover foto</button>
+      </div>
+    </aside>
   </div>
 
   <div id="modalHost"></div>

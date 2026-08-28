@@ -68,6 +68,7 @@ export function fillDashboardText(root, data) {
   set('dCartao', money.format(m.cartaoDia));
   set('dBoletos', integer.format(m.boletosDia));
   set('dTaxa', money.format(m.taxaDia));
+  set('dVendas', integer.format(m.lancamentosDia));
   set('goalRevenueText', `${money.format(m.faturadoMensal)} / ${money.format(m.goalRevenue)}`);
   set('goalEnrollText', `${integer.format(m.matriculasMensais)} / ${integer.format(m.goalEnroll)}`);
   set('goalRevenueMissing', m.goalRevenue ? `Faltam ${money.format(m.revenueMissing)}` : 'Defina a meta');

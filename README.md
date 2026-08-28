@@ -1,47 +1,76 @@
-# Painel Comercial UNIFAHE — V4
+# Painel Comercial UNIFAHE — V15
 
-Versão reorganizada do painel comercial, com foco em leitura rápida do dashboard, auditoria simples de vendas e comprovantes.
+Versão com vendas, auditoria por perfil, até três comprovantes, dashboard no Início, FCA vendedor ↔ gestor, comissões e perfil com foto.
 
-## O que mudou nesta versão
+## Ajustes V15
 
-- Dashboard com menos cards e maior integração visual com a página.
-- Faixa única de indicadores mensais e uma linha compacta para o dia selecionado.
-- Metas de faturamento e matrículas com realizado, meta, quanto falta e percentual na mesma linha.
-- Gráficos reorganizados em três áreas: projeção das metas, distribuição por pagamento e faturamento por modalidade.
-- Vendas marcadas como `Não OK` são desconsideradas dos indicadores do dashboard.
-- Primeira coluna da área Vendas dedicada à auditoria:
-  - `Pendente` ao criar a venda;
-  - Gestor pode definir apenas `Venda OK` ou `Venda não OK`;
-  - Vendedor apenas visualiza o resultado da auditoria.
-- Última coluna dedicada ao comprovante da venda.
-- Comprovantes aceitam PDF, JPG, PNG, WEBP, DOC, DOCX e ODT, até 3 MB.
-- No modo local, comprovantes ficam no IndexedDB do navegador.
-- Com Supabase configurado, comprovantes ficam em bucket privado `sales-receipts` e são entregues pela API da Vercel.
-- Linha da venda pode ser expandida para detalhes secundários sem aumentar o número de colunas visíveis.
+- Clicar no seletor de auditoria não expande mais os detalhes da venda; a linha só expande quando o clique ocorre em uma área informativa da própria venda.
+- O comportamento foi tratado no manipulador principal da linha, evitando conflito com controles interativos presentes na tabela.
+- As mensagens de auditoria agora abrem para a direita do ícone, com seta visual, evitando corte junto à lateral esquerda da tabela/menu.
+
+## Ajustes V13
+
+- A auditoria passou a ser definida diretamente por um select na coluna da venda, sem abrir modal central.
+- O select permite escolher somente **Venda OK** ou **Venda não OK**, mantendo **Pendente** enquanto ainda não houver decisão.
+- No visualizador de comprovantes, o zoom continua na roda do mouse e o deslocamento da imagem agora é feito segurando o **botão esquerdo** e arrastando.
+
+
+## Ajustes V11
+
+### Comprovantes
+- O visualizador continua abrindo dentro do próprio painel.
+- Para imagens, a roda do mouse controla o zoom: para frente aumenta e para trás diminui.
+- As barras de rolagem foram removidas do visualizador de imagem.
+- Para navegar em uma imagem ampliada, segure o botão esquerdo do mouse e arraste.
+- Em telas touch, o arraste continua disponível pelo toque.
+- O botão Voltar retorna à lista dos comprovantes.
+
+### Navegação e Dashboard
+- O item Dashboard foi removido do menu lateral.
+- O Dashboard é a própria página Início.
+- Gestor: inicia no Dashboard geral e pode alternar para o individual dentro da própria página.
+- Vendedor: inicia no Dashboard individual e não possui acesso ao geral.
+
+### Perfil Auditoria
+- Novo perfil `auditoria`.
+- O menu mostra somente Vendas.
+- Pode visualizar todas as vendas.
+- Pode definir Venda OK ou Venda não OK.
+- Pode abrir e visualizar comprovantes.
+- Não pode lançar vendas, adicionar comprovantes nem excluir comprovantes.
+
+### FCA
+- Vendedor envia relatório semanal ou mensal ao gestor.
+- O relatório registra período, indicador principal, situação, motivo, pontos positivos, dificuldades, próxima ação e apoio necessário.
+- O painel calcula e salva junto ao FCA um resumo do período: faturado, vendas, matrículas, quitados/cartão e boletos.
+- Gestor recebe os relatórios no próprio FCA.
+- Ao abrir um relatório, o gestor pode solicitar feedback ao vendedor ou criar uma ação.
+- Solicitação de feedback aparece no FCA do vendedor e permite resposta.
+- Ações criadas pelo gestor aparecem no FCA do vendedor com título, descrição e prazo.
+- O vendedor pode marcar a ação como concluída.
 
 ## Acessos de demonstração
 
 - Gestor: `gestor@unifahe.com.br` / `123456`
 - Vendedor: `vendedor@unifahe.com.br` / `123456`
+- Auditoria: `auditoria@unifahe.com.br` / `123456`
 
-## Banco de dados
+## Banco
 
-1. Crie um projeto no Supabase.
-2. Execute o arquivo `supabase.sql` no SQL Editor.
-3. Na Vercel configure:
-   - `SUPABASE_URL`
-   - `SUPABASE_SERVICE_ROLE_KEY`
-4. Para espelhar as vendas em uma planilha, configure também:
-   - `GOOGLE_SHEETS_WEBHOOK_URL`
-   - `GOOGLE_SHEETS_WEBHOOK_TOKEN`
+Execute o `supabase.sql` atualizado para criar as tabelas `fca_reports` e `fca_actions` além das estruturas já existentes de vendas e comprovantes.
 
-O banco é a fonte principal. A planilha continua sendo apenas um espelho em segundo plano.
+## Estrutura principal
 
-## Estrutura
+- `index.html` — base da aplicação e login.
+- `styles.css` — interface e responsividade.
+- `app.js` — navegação, vendas, auditoria, comprovantes, FCA, dashboard e comissões.
+- `modules/repository.js` — vendas e comprovantes.
+- `modules/fca-repository.js` — relatórios FCA, feedbacks e ações.
+- `modules/dashboard.js` — métricas e gráficos.
+- `modules/commissions.js` — produção e bonificações.
+- `api/fca.js` — persistência do fluxo FCA.
+- `supabase.sql` — esquema completo atualizado.
 
-- `index.html` — estrutura principal.
-- `styles.css` — visual completo, sem folhas de correção sobrepostas.
-- `app.js` — navegação, vendas, auditoria, comprovantes e dashboard.
-- `modules/` — catálogo, cálculos, utilitários e repositório de dados.
-- `api/` — endpoints Vercel para vendas, auditoria e comprovantes.
-- `supabase.sql` — estrutura do banco e bucket privado de comprovantes.
+## Auditoria por ícones
+
+A auditoria agora usa um seletor visual compacto: check verde = Venda OK, X vermelho = Falta comprovante e bolinha amarela = Falta documentação. Os três estados exibem a descrição ao passar o ponteiro e podem ser escolhidos diretamente pelo perfil autorizado.

@@ -44,8 +44,25 @@ export function uid() {
 }
 
 export function normalizeSale(raw) {
+  const id = raw.id || uid();
+  const receipts = Array.isArray(raw.receipts) ? raw.receipts.map((receipt,index) => ({
+    id: receipt.id || `${id}-receipt-${index+1}`,
+    sale_id: receipt.sale_id || id,
+    path: receipt.path || receipt.receipt_path || '',
+    name: receipt.name || receipt.receipt_name || 'Comprovante',
+    type: receipt.type || receipt.receipt_type || 'application/octet-stream',
+    size: Number(receipt.size || receipt.receipt_size || 0),
+    uploaded_at: receipt.uploaded_at || receipt.receipt_uploaded_at || receipt.created_at || ''
+  })) : [];
+  if (!receipts.length && raw.receipt_path) {
+    receipts.push({
+      id: `legacy-${id}`, sale_id:id, path:raw.receipt_path, name:raw.receipt_name || 'Comprovante',
+      type:raw.receipt_type || 'application/octet-stream', size:Number(raw.receipt_size || 0),
+      uploaded_at:raw.receipt_uploaded_at || ''
+    });
+  }
   return {
-    id: raw.id || uid(),
+    id,
     sale_date: raw.sale_date || raw.data || todayISO(),
     seller_name: raw.seller_name || raw.vendedor || '',
     student_name: raw.student_name || raw.aluno || '',
@@ -62,11 +79,7 @@ export function normalizeSale(raw) {
     audit_status: ['ok','not_ok'].includes(raw.audit_status) ? raw.audit_status : 'pending',
     audited_by: raw.audited_by || '',
     audited_at: raw.audited_at || '',
-    receipt_path: raw.receipt_path || '',
-    receipt_name: raw.receipt_name || '',
-    receipt_type: raw.receipt_type || '',
-    receipt_size: Number(raw.receipt_size || 0),
-    receipt_uploaded_at: raw.receipt_uploaded_at || '',
+    receipts,
     created_at: raw.created_at || new Date().toISOString(),
     sheet_sync_status: raw.sheet_sync_status || 'pending'
   };
