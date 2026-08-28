@@ -74,3 +74,8 @@ Execute o `supabase.sql` atualizado para criar as tabelas `fca_reports` e `fca_a
 ## Auditoria por ícones
 
 A auditoria agora usa um seletor visual compacto: check verde = Venda OK, X vermelho = Falta comprovante e bolinha amarela = Falta documentação. Os três estados exibem a descrição ao passar o ponteiro e podem ser escolhidos diretamente pelo perfil autorizado.
+
+
+## V19
+- Card de login centralizado no viewport.
+- Mantidos os acessos de demonstração: ao clicar em Vendedor, Gestor ou Auditoria, e-mail e senha são preenchidos automaticamente, sem efetuar login até clicar em Entrar.

@@ -16,42 +16,44 @@
 </head>
 <body>
   <div id="loginView" class="login-view">
-    <div class="login-brand-shape" aria-hidden="true"></div>
     <main class="login-shell">
-      <div class="login-heading">
-        <img src="assets/logo-light.png" alt="UNIFAHE" class="login-logo" />
-        <span class="system-label">PAINEL COMERCIAL</span>
-        <h1>Central comercial</h1>
-        <p>Operação de vendas, acompanhamento individual e gestão comercial no mesmo ambiente.</p>
-      </div>
-
-      <form id="loginForm" class="login-form" autocomplete="off">
-        <label class="field">
-          <span>E-mail</span>
-          <div class="field-control">
-            <i data-lucide="mail"></i>
-            <input id="email" type="email" placeholder="seuemail@unifahe.com.br" required />
-          </div>
-        </label>
-        <label class="field">
-          <span>Senha</span>
-          <div class="field-control">
-            <i data-lucide="lock-keyhole"></i>
-            <input id="password" type="password" placeholder="Digite sua senha" required />
-            <button id="togglePassword" class="icon-button password-toggle" type="button" aria-label="Mostrar senha"><i data-lucide="eye"></i></button>
-          </div>
-        </label>
-        <p id="loginError" class="login-error" role="alert"></p>
-        <button class="primary-button" type="submit">Entrar no painel</button>
-        <div class="demo-access">
-          <span>Acessos de demonstração</span>
-          <div class="demo-buttons">
-            <button type="button" data-demo="vendedor">Vendedor</button>
-            <button type="button" data-demo="gestor">Gestor</button>
-            <button type="button" data-demo="auditoria">Auditoria</button>
+      <section class="login-panel" aria-label="Acesso à Plataforma Comercial">
+        <div class="login-heading">
+          <img src="assets/logo-white.png" alt="UNIFAHE" class="login-logo" />
+          <div class="login-title-copy">
+            <h1>Login</h1>
+            <p>Plataforma Comercial</p>
           </div>
         </div>
-      </form>
+
+        <form id="loginForm" class="login-form" autocomplete="off">
+          <label class="field">
+            <span>E-mail</span>
+            <div class="field-control">
+              <i data-lucide="mail"></i>
+              <input id="email" type="email" placeholder="seuemail@unifahe.com.br" required />
+            </div>
+          </label>
+          <label class="field">
+            <span>Senha</span>
+            <div class="field-control">
+              <i data-lucide="lock-keyhole"></i>
+              <input id="password" type="password" placeholder="Digite sua senha" required />
+              <button id="togglePassword" class="icon-button password-toggle" type="button" aria-label="Mostrar senha"><i data-lucide="eye"></i></button>
+            </div>
+          </label>
+          <p id="loginError" class="login-error" role="alert"></p>
+          <button class="primary-button" type="submit">Entrar</button>
+          <div class="demo-access">
+            <span>Acessos de demonstração</span>
+            <div class="demo-buttons">
+              <button type="button" data-demo="vendedor">Vendedor</button>
+              <button type="button" data-demo="gestor">Gestor</button>
+              <button type="button" data-demo="auditoria">Auditoria</button>
+            </div>
+          </div>
+        </form>
+      </section>
     </main>
   </div>
 
