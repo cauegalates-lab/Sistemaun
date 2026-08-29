@@ -105,3 +105,7 @@ ID da venda, data, vendedor, aluno, pagamento, taxa/parcela, parcelas, valor tot
 8. Execute novamente `supabase.sql` no Supabase para adicionar `sheet_synced_at` e `sheet_sync_error` caso a tabela já exista.
 
 O Apps Script não apaga colunas existentes: ele adiciona os cabeçalhos necessários que estiverem faltando e faz o upsert pelo `ID VENDA`.
+
+## Login temporário por seleção
+
+O login de demonstração agora usa um **select de usuário**. No topo aparecem **Gestor** e **Auditoria**; abaixo ficam os vendedores. O usuário escolhe o próprio nome e informa somente a senha. Enquanto a autenticação real não for definida, todos os acessos de demonstração usam a senha `123456`.

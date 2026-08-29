@@ -32,7 +32,7 @@ let fcaActionsCache = [];
 
 const $ = s => document.querySelector(s);
 const loginView=$('#loginView'), appView=$('#appView'), loginForm=$('#loginForm'), loginError=$('#loginError');
-const emailInput=$('#email'), passwordInput=$('#password'), sidebar=$('#sidebar'), sidebarNav=$('#sidebarNav');
+const loginUserInput=$('#loginUser'), passwordInput=$('#password'), sidebar=$('#sidebar'), sidebarNav=$('#sidebarNav');
 const content=$('#content'), userName=$('#userName'), userRole=$('#userRole'), userAvatar=$('#userAvatar');
 const mobileOverlay=$('#mobileOverlay'), modalHost=$('#modalHost');
 const profileTrigger=$('#profileTrigger'), profileDrawer=$('#profileDrawer'), profileOverlay=$('#profileOverlay'), profileCloseButton=$('#profileCloseButton');
@@ -72,15 +72,11 @@ function closeProfileDrawer(){ profileDrawer.classList.remove('is-open'); profil
 
 loginForm.addEventListener('submit', e=>{
   e.preventDefault();
-  const email=emailInput.value.trim().toLowerCase();
-  const user=DEMO_USERS[email];
-  if(!user || user.password!==passwordInput.value){ loginError.textContent='E-mail ou senha inválidos.'; return; }
+  const loginKey=loginUserInput.value;
+  const user=DEMO_USERS[loginKey];
+  if(!user || user.password!==passwordInput.value){ loginError.textContent='Usuário ou senha inválidos.'; return; }
   loginError.textContent=''; signIn(user);
 });
-document.querySelectorAll('[data-demo]').forEach(btn=>btn.addEventListener('click',()=>{
-  const email=btn.dataset.demo==='gestor'?'gestor@unifahe.com.br':btn.dataset.demo==='auditoria'?'auditoria@unifahe.com.br':'vendedor@unifahe.com.br';
-  emailInput.value=email; passwordInput.value='123456';
-}));
 $('#togglePassword').addEventListener('click',()=>{
   const show=passwordInput.type==='password'; passwordInput.type=show?'text':'password';
   $('#togglePassword').innerHTML=`<i data-lucide="${show?'eye-off':'eye'}"></i>`; refreshIcons();
@@ -128,7 +124,7 @@ async function signIn(user){
 }
 function signOut(){
   closeProfileDrawer(); if(activeProfilePhotoUrl){URL.revokeObjectURL(activeProfilePhotoUrl);activeProfilePhotoUrl='';}
-  currentUser=null; salesCache=[]; destroyCharts(); closeModal(); appView.classList.add('is-hidden'); loginView.classList.remove('is-hidden'); passwordInput.value=''; closeMobileMenu();
+  currentUser=null; salesCache=[]; destroyCharts(); closeModal(); appView.classList.add('is-hidden'); loginView.classList.remove('is-hidden'); loginUserInput.value=''; passwordInput.value=''; closeMobileMenu();
 }
 async function loadSales(){ const result=await SalesRepository.list(); salesCache=result.rows; }
 function closeMobileMenu(){ sidebar.classList.remove('mobile-open'); mobileOverlay.classList.remove('visible'); }
