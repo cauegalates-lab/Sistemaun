@@ -16,6 +16,8 @@ create table if not exists public.sales (
   origin text not null,
   course_quantity integer not null default 1 check (course_quantity > 0),
   sheet_sync_status text not null default 'pending',
+  sheet_synced_at timestamptz,
+  sheet_sync_error text not null default '',
   audit_status text not null default 'pending',
   audited_by text not null default '',
   audited_at timestamptz,
@@ -28,6 +30,9 @@ create table if not exists public.sales (
   created_at timestamptz not null default now()
 );
 
+alter table public.sales add column if not exists sheet_sync_status text not null default 'pending';
+alter table public.sales add column if not exists sheet_synced_at timestamptz;
+alter table public.sales add column if not exists sheet_sync_error text not null default '';
 alter table public.sales add column if not exists audit_status text not null default 'pending';
 alter table public.sales add column if not exists audited_by text not null default '';
 alter table public.sales add column if not exists audited_at timestamptz;

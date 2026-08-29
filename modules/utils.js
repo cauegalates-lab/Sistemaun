@@ -81,7 +81,9 @@ export function normalizeSale(raw) {
     audited_at: raw.audited_at || '',
     receipts,
     created_at: raw.created_at || new Date().toISOString(),
-    sheet_sync_status: raw.sheet_sync_status || 'pending'
+    sheet_sync_status: raw.sheet_sync_status || 'pending',
+    sheet_synced_at: raw.sheet_synced_at || '',
+    sheet_sync_error: raw.sheet_sync_error || ''
   };
 }
 

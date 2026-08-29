@@ -113,11 +113,11 @@ export const SalesRepository = {
       const payload = await requestJSON('/api/sales-audit', {
         method: 'POST', body: JSON.stringify({ sale_id: id, status, audited_by: auditedBy })
       });
-      return { sale: normalizeSale(payload.sale), source: 'database' };
+      return { sale: normalizeSale(payload.sale), source: 'database', sheetSync: payload.sheet_sync || { status: 'not_required' } };
     } catch (error) {
       const sale = updateLocalSale(id, { audit_status: status, audited_by: auditedBy, audited_at: new Date().toISOString() });
       if (!sale) throw error;
-      return { sale, source: 'local-demo' };
+      return { sale, source: 'local-demo', sheetSync: { status: 'local_demo' } };
     }
   },
 

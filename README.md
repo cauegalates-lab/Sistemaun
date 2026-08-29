@@ -79,3 +79,29 @@ A auditoria agora usa um seletor visual compacto: check verde = Venda OK, X verm
 ## V19
 - Card de login centralizado no viewport.
 - Mantidos os acessos de demonstração: ao clicar em Vendedor, Gestor ou Auditoria, e-mail e senha são preenchidos automaticamente, sem efetuar login até clicar em Entrar.
+
+## V20 — Google Sheets somente após Auditoria OK
+
+A aba **Vendas** da planilha `1BzqFOj4TaLjpgRmnocQxxlQq8O7wWeOQsxbTzZI0gUQ` passa a receber a venda somente quando o perfil autorizado marca **Venda OK**.
+
+### Fluxo
+1. Vendedor/Gestor lança a venda → salva apenas no banco.
+2. Auditoria deixa como Pendente, Falta documentação ou Falta comprovante → nada é enviado à planilha.
+3. Auditoria marca **Venda OK** → a API envia todos os dados da venda para a aba `Vendas`.
+4. O `ID VENDA` é usado como chave: se a mesma venda for reenviada, a linha é atualizada em vez de duplicada.
+5. Se a sincronização falhar, o banco grava `sheet_sync_status = error`; selecionar OK novamente tenta o envio outra vez.
+
+### Dados enviados
+ID da venda, data, vendedor, aluno, pagamento, taxa/parcela, parcelas, valor total, modalidade, pendência, curso, estado, origem, quantidade de cursos, dados da auditoria, quantidade e nomes dos até 3 comprovantes, criação e data de sincronização.
+
+### Configuração do Google Sheets
+1. Abra a planilha informada e acesse **Extensões → Apps Script**.
+2. Cole o conteúdo de `google-apps-script.gs`.
+3. Em **Configurações do projeto → Propriedades do script**, crie `WEBHOOK_TOKEN` com um token longo e secreto.
+4. Clique em **Implantar → Nova implantação → App da Web**.
+5. Execute como **você** e permita acesso ao endpoint do Web App.
+6. Copie a URL terminada em `/exec` para `GOOGLE_SHEETS_WEBHOOK_URL` na Vercel.
+7. Use o mesmo token em `GOOGLE_SHEETS_WEBHOOK_TOKEN` na Vercel.
+8. Execute novamente `supabase.sql` no Supabase para adicionar `sheet_synced_at` e `sheet_sync_error` caso a tabela já exista.
+
+O Apps Script não apaga colunas existentes: ele adiciona os cabeçalhos necessários que estiverem faltando e faz o upsert pelo `ID VENDA`.

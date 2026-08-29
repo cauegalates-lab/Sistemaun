@@ -438,14 +438,19 @@ document.addEventListener('click',async event=>{
     const saleId=choice.dataset.auditSale;
     const next=choice.dataset.auditChoice;
     const sale=salesCache.find(row=>row.id===saleId);
-    if(!sale || !['pending','ok','not_ok'].includes(next) || sale.audit_status===next){ closeAuditSelects(); return; }
+    const needsSheetRetry=next==='ok' && sale?.audit_status==='ok' && sale?.sheet_sync_status!=='synced';
+    if(!sale || !['pending','ok','not_ok'].includes(next) || (sale.audit_status===next && !needsSheetRetry)){ closeAuditSelects(); return; }
     const menu=choice.closest('.audit-icon-select');
     menu?.classList.add('is-busy');
     menu?.querySelectorAll('button').forEach(button=>button.disabled=true);
     try{
       const result=await SalesRepository.updateAudit(saleId,next,currentUser.name);
       replaceSale(result.sale);
-      toast('Auditoria atualizada.');
+      if(next==='ok' && result.sheetSync?.status==='synced') toast('Venda OK e enviada para a planilha.');
+      else if(next==='ok' && result.sheetSync?.status==='already_synced') toast('Venda OK. Ela já estava registrada na planilha.');
+      else if(next==='ok' && result.sheetSync?.status==='error') toast(`Venda OK, mas não foi enviada à planilha: ${result.sheetSync.message||'erro de sincronização'}`,'error');
+      else if(next==='ok' && result.sheetSync?.status==='not_configured') toast('Venda OK. Configure o webhook da planilha para sincronizar.','error');
+      else toast('Auditoria atualizada.');
       renderSales();
     }catch(error){
       menu?.classList.remove('is-busy');
