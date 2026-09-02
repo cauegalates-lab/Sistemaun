@@ -2,7 +2,7 @@ import { STATES, PAYMENT_TYPES, MODALITIES, ORIGINS, COURSES, SELLERS } from './
 import { SalesRepository } from './modules/repository.js';
 import { calculateDashboard, calculateSellerDashboard, fillDashboardText, renderCharts, renderSellerCharts, destroyCharts } from './modules/dashboard.js';
 import { escapeHTML, formatDateBR, formatDateTimeBR, fileSize, money, parseMoney, paymentLabel, todayISO, monthRangeISO } from './modules/utils.js';
-import { SELLER_PROFILES, calculateCommissionSnapshot } from './modules/commissions.js';
+import { SELLER_PROFILES, FCA_BASE_SALARY, FCA_RULES, calculateCommissionSnapshot, calculateCommissionRanking } from './modules/commissions.js';
 import { ProfilePhotoStore, MAX_PROFILE_PHOTO_BYTES } from './modules/profile.js';
 import { FcaRepository } from './modules/fca-repository.js';
 import { GoalsRepository } from './modules/goals-repository.js';
@@ -913,53 +913,76 @@ function openCreateFcaActionModal(report){
 }
 
 
-function renderCommissions(){
+async function renderCommissions(){
   const availableSellers=currentUser.role==='gestor'?SELLERS:[currentUser.name];
   if(!selectedCommissionSeller || !availableSellers.includes(selectedCommissionSeller)) selectedCommissionSeller=availableSellers[0];
   const profileMap=new Map(SELLER_PROFILES.map(profile=>[profile.name,profile]));
   const selectedProfile=profileMap.get(selectedCommissionSeller)||{name:selectedCommissionSeller,photo:''};
-  const selectedSnapshot=calculateCommissionSnapshot(salesCache,{seller:selectedCommissionSeller,month:commissionMonth});
+  content.innerHTML=`<section class="seller-dashboard-loading"><i data-lucide="loader-circle" class="spin"></i><strong>Calculando comissões...</strong></section>`; refreshIcons();
+  try{
+    const goals=await GoalsRepository.getForSeller(selectedCommissionSeller,commissionMonth);
+    const ranking=calculateCommissionRanking(salesCache,{month:commissionMonth,sellers:SELLERS});
+    const rankingMap=new Map(ranking.map(item=>[item.seller,item]));
+    const selectedSnapshot=calculateCommissionSnapshot(salesCache,{seller:selectedCommissionSeller,month:commissionMonth,goals,rankingEntry:rankingMap.get(selectedCommissionSeller)});
 
-  content.innerHTML=`
-    <section class="commission-head">
-      <div class="commission-title"><span class="eyebrow">DESEMPENHO COMERCIAL</span><h2>Comissões</h2><p>Produção e bonificação do mês em uma única visão.</p></div>
-      <label class="commission-month filter-field"><span>MÊS</span><input id="commissionMonth" type="month" value="${commissionMonth}"></label>
-    </section>
+    content.innerHTML=`
+      <section class="commission-head">
+        <div class="commission-title"><span class="eyebrow">MODELO FCA</span><h2>Comissões</h2><p>Comissão, bonificação, bônus e premiações separados para não misturar as regras de remuneração.</p></div>
+        <label class="commission-month filter-field"><span>MÊS</span><input id="commissionMonth" type="month" value="${commissionMonth}"></label>
+      </section>
 
-    ${currentUser.role==='gestor'?`<section class="commission-team">
-      <div class="commission-section-heading"><div><span class="section-kicker">EQUIPE</span><h3>Perfis dos vendedores</h3></div><span>${availableSellers.length} vendedores</span></div>
-      <div class="commission-profile-grid">
-        ${availableSellers.map(name=>commissionProfileButton(profileMap.get(name)||{name,photo:''},calculateCommissionSnapshot(salesCache,{seller:name,month:commissionMonth}),name===selectedCommissionSeller)).join('')}
-      </div>
-    </section>`:''}
+      ${currentUser.role==='gestor'?`<section class="commission-team">
+        <div class="commission-section-heading"><div><span class="section-kicker">EQUIPE</span><h3>Perfis dos vendedores</h3></div><span>${availableSellers.length} vendedores</span></div>
+        <div class="commission-profile-grid">
+          ${availableSellers.map(name=>commissionProfileButton(profileMap.get(name)||{name,photo:''},calculateCommissionSnapshot(salesCache,{seller:name,month:commissionMonth}),name===selectedCommissionSeller)).join('')}
+        </div>
+      </section>`:''}
 
-    <section class="commission-detail">
-      <header class="commission-person-head">
-        <div class="commission-person-main">${commissionAvatar(selectedProfile,'large')}<div><span class="section-kicker">RESUMO DO MÊS</span><h3>${escapeHTML(selectedCommissionSeller)}</h3><small>${formatCommissionMonth(commissionMonth)}</small></div></div>
-        <div class="commission-current-bonus"><span>BONIFICAÇÃO DO MÊS</span><strong>${selectedSnapshot.rulesConfigured?money.format(selectedSnapshot.bonusTotal):'—'}</strong><small>${selectedSnapshot.rulesConfigured?selectedSnapshot.currentRuleLabel:'Regras de bonificação a cadastrar'}</small></div>
-      </header>
-      <div class="commission-production" aria-label="Produção do mês">
-        ${commissionMetric('banknote','Faturado',money.format(selectedSnapshot.revenue))}
-        ${commissionMetric('receipt-text','Vendas',String(selectedSnapshot.salesCount))}
-        ${commissionMetric('graduation-cap','Matrículas',String(selectedSnapshot.enrollments))}
-        ${commissionMetric('credit-card','Cartão',money.format(selectedSnapshot.cardRevenue))}
-        ${commissionMetric('barcode','Boletos',String(selectedSnapshot.boletos))}
-      </div>
-      <div class="commission-bonus-area">
-        <div class="commission-bonus-title"><div><span class="section-kicker">BONIFICAÇÃO</span><h3>Faixas e valores</h3></div>${selectedSnapshot.rulesConfigured?`<strong>${money.format(selectedSnapshot.bonusTotal)}</strong>`:''}</div>
-        ${selectedSnapshot.rulesConfigured?commissionRulesMarkup(selectedSnapshot):`<div class="commission-rules-empty"><span class="commission-empty-icon"><i data-lucide="badge-dollar-sign"></i></span><div><strong>Produção calculada. Bonificação aguardando as regras.</strong><p>Quando a tabela de bonificação for adicionada, esta área passa a mostrar automaticamente a faixa atingida, o valor ganho e a próxima meta.</p></div></div>`}
-      </div>
-    </section>`;
+      <section class="commission-detail commission-detail-v30">
+        <header class="commission-person-head commission-person-head-v30">
+          <div class="commission-person-main">${commissionAvatar(selectedProfile,'large')}<div><span class="section-kicker">RESUMO DO MÊS</span><h3>${escapeHTML(selectedCommissionSeller)}</h3><small>${formatCommissionMonth(commissionMonth)} · somente vendas OK</small></div></div>
+          <div class="commission-variable-total"><span>VARIÁVEL ATINGIDO</span><strong>${money.format(selectedSnapshot.variableTotal)}</strong><small>Comissão + bonificação + bônus + premiação mensal</small></div>
+        </header>
 
-  $('#commissionMonth').addEventListener('change',e=>{ commissionMonth=e.target.value||todayISO().slice(0,7); renderCommissions(); });
-  content.querySelectorAll('[data-commission-seller]').forEach(button=>button.addEventListener('click',()=>{ selectedCommissionSeller=button.dataset.commissionSeller; renderCommissions(); }));
-  refreshIcons();
+        <div class="commission-production" aria-label="Produção do mês">
+          ${commissionMetric('banknote','Faturado',money.format(selectedSnapshot.revenue))}
+          ${commissionMetric('credit-card','Quitado / Cartão',money.format(selectedSnapshot.quitadoRevenue))}
+          ${commissionMetric('graduation-cap','Matrículas',String(selectedSnapshot.enrollments))}
+          ${commissionMetric('barcode','Boletos',String(selectedSnapshot.boletos))}
+          ${commissionMetric('layers-3','Matrículas em boleto',String(selectedSnapshot.boletoEnrollments))}
+        </div>
+
+        <section class="commission-summary-grid">
+          ${remunerationSummaryCard('wallet-cards','Fixo base',money.format(FCA_BASE_SALARY),'Separado da comissão variável.','base')}
+          ${remunerationSummaryCard('badge-dollar-sign','Comissão',money.format(selectedSnapshot.commissionTotal),'Somente as faixas de matrícula e quitado.','commission')}
+          ${remunerationSummaryCard('gift','Bonificação',money.format(selectedSnapshot.bonificationTotal),'Produção de matrículas em boleto.','bonification')}
+          ${remunerationSummaryCard('sparkles','Bônus',money.format(selectedSnapshot.bonusTotal),'Superação das metas de boleto e quitado.','bonus')}
+          ${remunerationSummaryCard('trophy','Premiação',money.format(selectedSnapshot.premiationTotal),selectedSnapshot.ranking.position?`${selectedSnapshot.ranking.position}º no ranking mensal de quitado`:'Sem posição premiada','premiation')}
+        </section>
+
+        <section class="remuneration-breakdown">
+          ${commissionCategoryMarkup(selectedSnapshot)}
+          ${bonificationCategoryMarkup(selectedSnapshot)}
+          ${bonusCategoryMarkup(selectedSnapshot,goals)}
+          ${premiationCategoryMarkup(selectedSnapshot)}
+        </section>
+
+        <section class="commission-rules-note">
+          <i data-lucide="info"></i>
+          <div><strong>Regras de aplicação</strong><p>Os valores exibidos são atingidos pela produção cadastrada. Bônus e premiações que exigem 3 meses dependem da validação de elegibilidade. Matrículas canceladas dentro de 7 dias não devem compor o comissionamento.</p></div>
+        </section>
+      </section>`;
+
+    $('#commissionMonth').addEventListener('change',e=>{ commissionMonth=e.target.value||todayISO().slice(0,7); renderCommissions(); });
+    content.querySelectorAll('[data-commission-seller]').forEach(button=>button.addEventListener('click',()=>{ selectedCommissionSeller=button.dataset.commissionSeller; renderCommissions(); }));
+    refreshIcons();
+  }catch(error){ content.innerHTML=`<section class="seller-dashboard-loading error"><i data-lucide="circle-alert"></i><strong>${escapeHTML(error.message||'Não foi possível calcular as comissões.')}</strong></section>`; refreshIcons(); }
 }
 
 function commissionProfileButton(profile,snapshot,active){
   return `<button type="button" class="commission-profile${active?' active':''}" data-commission-seller="${escapeHTML(profile.name)}">
     ${commissionAvatar(profile)}
-    <span class="commission-profile-copy"><strong>${escapeHTML(profile.name)}</strong><small>${snapshot.salesCount} vendas · ${money.format(snapshot.revenue)}</small></span>
+    <span class="commission-profile-copy"><strong>${escapeHTML(profile.name)}</strong><small>${snapshot.salesCount} vendas OK · ${money.format(snapshot.revenue)}</small></span>
     <i data-lucide="chevron-right"></i>
   </button>`;
 }
@@ -968,8 +991,58 @@ function commissionAvatar(profile,size='normal'){
   return `<span class="commission-avatar ${size}">${escapeHTML(userInitials(profile.name))}</span>`;
 }
 function commissionMetric(icon,label,value){ return `<div class="commission-metric"><span><i data-lucide="${icon}"></i></span><div><small>${label}</small><strong>${value}</strong></div></div>`; }
-function commissionRulesMarkup(snapshot){
-  return `<div class="commission-rules-list">${snapshot.ruleResults.map(rule=>`<div class="commission-rule${rule.earned?' earned':''}"><span>${escapeHTML(rule.label)}</span><strong>${rule.earned?money.format(rule.reward):'—'}</strong></div>`).join('')}</div>`;
+function remunerationSummaryCard(icon,label,value,description,type){
+  return `<article class="remuneration-summary-card ${type}"><span class="remuneration-summary-icon"><i data-lucide="${icon}"></i></span><div><small>${label}</small><strong>${value}</strong><p>${description}</p></div></article>`;
+}
+function tierNextText(tier,formatter=(value)=>String(value)){
+  if(!tier.next) return 'Faixa máxima atingida';
+  return `Próxima faixa: ${formatter(tier.next.min)}`;
+}
+function remunerationLine(label,detail,value,earned=true){
+  return `<div class="remuneration-line${earned?' earned':''}"><div><strong>${label}</strong><span>${detail}</span></div><strong>${value}</strong></div>`;
+}
+function commissionCategoryMarkup(snapshot){
+  const enrollment=snapshot.enrollmentCommission;
+  const quitado=snapshot.quitadoCommission;
+  return `<article class="remuneration-category commission-category">
+    <header><div><span class="section-kicker">COMISSÃO</span><h3>Faixas de comissão</h3><p>Somente as faixas entram no total de comissão.</p></div><strong>${money.format(snapshot.commissionTotal)}</strong></header>
+    <div class="remuneration-lines">
+      ${remunerationLine('Faixa variável por matrícula',enrollment.current?`${enrollment.current.label} · ${tierNextText(enrollment,value=>`${value} matrículas`)}`:`Ainda não atingiu 75 matrículas · próxima: 75`,money.format(enrollment.reward),Boolean(enrollment.current))}
+      ${remunerationLine('Comissão sobre quitado',quitado.current?`Quitado atual ${money.format(snapshot.quitadoRevenue)} · ${tierNextText(quitado,value=>money.format(value))}`:`Quitado atual ${money.format(snapshot.quitadoRevenue)} · próxima faixa ${money.format(5000)}`,money.format(quitado.reward),Boolean(quitado.current))}
+    </div>
+  </article>`;
+}
+function bonificationCategoryMarkup(snapshot){
+  const tier=snapshot.boletoBonification;
+  const next=tier.next ? (tier.next.min===101?'acima de 100 matrículas em boleto':`${tier.next.min} matrículas em boleto`) : 'faixa máxima';
+  return `<article class="remuneration-category bonification-category">
+    <header><div><span class="section-kicker">BONIFICAÇÃO</span><h3>Produção em boleto</h3><p>Calculada pelas matrículas de vendas em boleto.</p></div><strong>${money.format(snapshot.bonificationTotal)}</strong></header>
+    <div class="remuneration-focus"><span>Produção atual</span><strong>${snapshot.boletoEnrollments} matrículas</strong><small>${tier.current?`Faixa atual ${money.format(tier.reward)} · próxima: ${next}`:`Primeira faixa aos 5 boletos/matrículas`}</small></div>
+  </article>`;
+}
+function bonusCategoryMarkup(snapshot,goals){
+  const boleto=snapshot.boletoBonus, quitado=snapshot.quitadoBonus;
+  const boletoDetail=Number(goals.boleto_goal||0)>0?`${boleto.pct.toFixed(1).replace('.',',')}% da meta de ${goals.boleto_goal} boletos`:'Defina a meta de boletos em Indicadores';
+  const quitadoDetail=Number(goals.quitado_goal||0)>0?`${quitado.pct.toFixed(1).replace('.',',')}% da meta de ${money.format(goals.quitado_goal)}`:'Defina a meta de quitado em Indicadores';
+  return `<article class="remuneration-category bonus-category">
+    <header><div><span class="section-kicker">BÔNUS</span><h3>Superação de metas</h3><p>Separado da comissão e da bonificação por produção.</p></div><strong>${money.format(snapshot.bonusTotal)}</strong></header>
+    <div class="remuneration-lines">
+      ${remunerationLine('Superação da meta de boleto',boleto.current?`${boleto.current.label} · ${boletoDetail}`:boletoDetail,money.format(boleto.reward),Boolean(boleto.current))}
+      ${remunerationLine('Superação da meta de quitado',quitado.current?`${quitado.current.label} · ${quitadoDetail}`:quitadoDetail,money.format(quitado.reward),Boolean(quitado.current))}
+    </div>
+    <div class="remuneration-eligibility"><i data-lucide="clock-3"></i><span>Pagamento sujeito à regra de elegibilidade a partir de 3 meses.</span></div>
+  </article>`;
+}
+function premiationCategoryMarkup(snapshot){
+  const rank=snapshot.ranking.position;
+  return `<article class="remuneration-category premiation-category">
+    <header><div><span class="section-kicker">PREMIAÇÕES</span><h3>Ranking e consistência</h3><p>Premiações ficam fora de comissão, bonificação e bônus.</p></div><strong>${money.format(snapshot.premiationTotal)}</strong></header>
+    <div class="remuneration-lines">
+      ${remunerationLine('Ranking mensal de quitado',rank?`${rank}º lugar · quitado ${money.format(snapshot.quitadoRevenue)}`:'Sem produção quitada para posição premiada',money.format(snapshot.premiationTotal),snapshot.premiationTotal>0)}
+      ${remunerationLine('Destaque da semana','O documento define valores para top 3, mas não define o critério do destaque.','Regra manual',false)}
+      ${remunerationLine('Bônus por consistência','R$ 500 em 3 meses e R$ 1.000 em 6 meses consecutivos a 100% da meta.','Histórico',false)}
+    </div>
+  </article>`;
 }
 function formatCommissionMonth(value){
   if(!/^\d{4}-\d{2}$/.test(value||'')) return 'Mês atual';
@@ -1253,9 +1326,11 @@ async function renderIndicators(){
           ${indicatorGoalInput('banknote','Meta de faturamento','revenue_goal',currentGoal.revenue_goal,'money')}
           ${indicatorGoalInput('graduation-cap','Meta de matrículas','enrollment_goal',currentGoal.enrollment_goal)}
           ${indicatorGoalInput('barcode','Meta de boletos','boleto_goal',currentGoal.boleto_goal)}
+          ${indicatorGoalInput('credit-card','Meta de quitado (bônus FCA)','quitado_goal',currentGoal.quitado_goal,'money')}
           <button class="primary-action indicator-save" type="submit"><i data-lucide="save"></i>Salvar metas</button>
         </form>
       </section>
+      <div class="indicator-remuneration-note"><i data-lucide="badge-dollar-sign"></i><span>As metas de boleto e quitado também alimentam automaticamente os bônus FCA na área Comissões.</span></div>
       <section class="indicator-team-section">
         <div class="indicator-team-heading"><div><span class="section-kicker">EQUIPE</span><h3>Metas de ${new Intl.DateTimeFormat('pt-BR',{month:'long',year:'numeric'}).format(new Date(`${indicatorsMonth}-01T12:00:00`))}</h3></div><span>${monthGoals.length} de ${SELLERS.length} vendedores configurados</span></div>
         <div class="indicator-team-list">
@@ -1270,7 +1345,7 @@ async function renderIndicators(){
       e.preventDefault(); const form=new FormData(e.currentTarget); const button=e.currentTarget.querySelector('button[type="submit"]');
       button.disabled=true; button.innerHTML='<i data-lucide="loader-circle" class="spin"></i>Salvando'; refreshIcons();
       try{
-        await GoalsRepository.save({seller_name:selectedIndicatorSeller,month:indicatorsMonth,revenue_goal:parseMoney(form.get('revenue_goal')),enrollment_goal:Number(form.get('enrollment_goal')||0),boleto_goal:Number(form.get('boleto_goal')||0),updated_by:currentUser.name});
+        await GoalsRepository.save({seller_name:selectedIndicatorSeller,month:indicatorsMonth,revenue_goal:parseMoney(form.get('revenue_goal')),enrollment_goal:Number(form.get('enrollment_goal')||0),boleto_goal:Number(form.get('boleto_goal')||0),quitado_goal:parseMoney(form.get('quitado_goal')),updated_by:currentUser.name});
         toast(`Metas de ${selectedIndicatorSeller} salvas.`); renderIndicators();
       }catch(error){ toast(error.message||'Não foi possível salvar as metas.','error'); button.disabled=false; }
     });
@@ -1278,12 +1353,13 @@ async function renderIndicators(){
   }catch(error){ content.innerHTML=`<section class="seller-dashboard-loading error"><i data-lucide="circle-alert"></i><strong>${escapeHTML(error.message||'Não foi possível carregar os indicadores.')}</strong></section>`; refreshIcons(); }
 }
 function indicatorTeamRow(name,goal){
-  const configured=Boolean(goal && (goal.revenue_goal || goal.enrollment_goal || goal.boleto_goal));
+  const configured=Boolean(goal && (goal.revenue_goal || goal.enrollment_goal || goal.boleto_goal || goal.quitado_goal));
   return `<button type="button" class="indicator-team-row${name===selectedIndicatorSeller?' active':''}" data-indicator-seller="${escapeHTML(name)}">
     <div class="indicator-team-person"><span>${escapeHTML(userInitials(name))}</span><strong>${escapeHTML(name)}</strong></div>
     <div><span>Faturamento</span><strong>${goal?.revenue_goal?money.format(goal.revenue_goal):'—'}</strong></div>
     <div><span>Matrículas</span><strong>${goal?.enrollment_goal||'—'}</strong></div>
     <div><span>Boletos</span><strong>${goal?.boleto_goal||'—'}</strong></div>
+    <div><span>Quitado</span><strong>${goal?.quitado_goal?money.format(goal.quitado_goal):'—'}</strong></div>
     <span class="indicator-config-status ${configured?'configured':'pending'}">${configured?'Configurado':'Pendente'}</span>
     <i data-lucide="chevron-right"></i>
   </button>`;

@@ -176,3 +176,60 @@
 .manager-directory-list{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:7px}.manager-directory-person{min-width:0;height:48px;display:grid;grid-template-columns:auto minmax(0,1fr) auto;align-items:center;gap:8px;padding:0 9px;border:1px solid #e1e8ee;border-radius:11px;background:#fff;text-align:left}.manager-directory-person:hover{border-color:#c8d7e3;background:#f8fbfd}.manager-directory-person.active{border-color:#f0c5a8;background:#fff7f1;box-shadow:inset 3px 0 0 var(--orange)}.manager-directory-person>span{width:27px;height:27px;display:grid;place-items:center;border-radius:50%;background:#edf3f8;color:var(--navy);font-size:7.5px;font-weight:900}.manager-directory-person strong{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--navy);font-size:9px}.manager-directory-person svg{width:13px;color:#91a0ae}.manager-directory-empty{padding:18px;text-align:center;color:#8997a5;font-size:9px}
 @media(max-width:1180px){.manager-seller-toolbar{grid-template-columns:auto 1fr}.manager-seller-actions{grid-column:1/-1;justify-content:flex-end;border-top:1px solid #e7edf2;padding-top:8px}.manager-directory-list{grid-template-columns:repeat(3,minmax(0,1fr))}.indicator-head-actions{flex-wrap:wrap;justify-content:flex-end}}
 @media(max-width:760px){.indicator-head-actions{display:grid;width:100%}.indicator-view-all{width:100%}.manager-seller-toolbar{grid-template-columns:1fr}.manager-seller-current{padding:8px 0 0;border-left:0;border-top:1px solid #e7edf2}.manager-seller-actions{justify-content:stretch;flex-wrap:wrap}.manager-seller-nav,.manager-directory-button{flex:1}.manager-seller-nav-next small{display:none}.manager-directory-head{display:grid}.manager-seller-search{width:100%}.manager-directory-list{grid-template-columns:1fr 1fr}}@media(max-width:480px){.manager-directory-list{grid-template-columns:1fr}}
+
+/* V30 - FCA remuneration separation */
+.indicator-goal-form{grid-template-columns:repeat(4,minmax(150px,1fr)) auto}
+.indicator-remuneration-note{display:flex;align-items:center;gap:9px;margin:8px 0 2px;padding:10px 12px;border:1px solid #dbe6ef;border-radius:12px;background:#f7fbff;color:#607386;font-size:9px}
+.indicator-remuneration-note svg{width:16px;color:var(--blue)}
+.indicator-team-row{grid-template-columns:minmax(190px,1.25fr) repeat(4,minmax(105px,.68fr)) 105px 20px}
+.commission-detail-v30{background:transparent;border:0}
+.commission-person-head-v30{border:1px solid #dce5ed;border-radius:16px;background:linear-gradient(100deg,#fff 0%,#f8fbff 70%,#fff6ee 100%)}
+.commission-variable-total{min-width:250px;text-align:right;padding-left:18px;border-left:1px solid #dce5ed}
+.commission-variable-total>span{display:block;color:#8795a4;font-size:8px;font-weight:800;letter-spacing:.08em}
+.commission-variable-total strong{display:block;margin-top:4px;color:var(--navy);font-size:26px}
+.commission-variable-total small{display:block;margin-top:4px;color:#8090a0;font-size:8.5px}
+.commission-detail-v30 .commission-production{margin-top:10px;border:1px solid #dfe6ed;border-radius:14px;overflow:hidden;background:#fff}
+.commission-summary-grid{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:9px;margin:10px 0}
+.remuneration-summary-card{min-width:0;display:grid;grid-template-columns:auto minmax(0,1fr);align-items:start;gap:10px;padding:13px;border:1px solid #dce5ed;border-radius:14px;background:#fff}
+.remuneration-summary-card.commission{border-top:3px solid var(--navy)}
+.remuneration-summary-card.bonification{border-top:3px solid var(--orange)}
+.remuneration-summary-card.bonus{border-top:3px solid var(--blue)}
+.remuneration-summary-card.premiation{border-top:3px solid #b18421}
+.remuneration-summary-card.base{border-top:3px solid #8d9baa}
+.remuneration-summary-icon{width:34px;height:34px;display:grid;place-items:center;border-radius:10px;background:#edf3f8;color:var(--navy)}
+.remuneration-summary-icon svg{width:16px}
+.remuneration-summary-card small{display:block;color:#8593a2;font-size:7.5px;font-weight:800;letter-spacing:.055em;text-transform:uppercase}
+.remuneration-summary-card strong{display:block;margin-top:3px;color:var(--navy);font-size:17px}
+.remuneration-summary-card p{margin:4px 0 0;color:#8795a3;font-size:8px;line-height:1.35}
+.remuneration-breakdown{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}
+.remuneration-category{padding:15px;border:1px solid #dce5ed;border-radius:16px;background:#fff}
+.remuneration-category>header{display:flex;align-items:flex-start;justify-content:space-between;gap:15px;padding-bottom:11px;border-bottom:1px solid #e4eaf0}
+.remuneration-category>header h3{margin:3px 0 0;color:var(--navy);font-size:17px}
+.remuneration-category>header p{margin:4px 0 0;color:#8291a0;font-size:8.5px;line-height:1.4}
+.remuneration-category>header>strong{white-space:nowrap;color:var(--navy);font-size:19px}
+.commission-category{box-shadow:inset 3px 0 0 var(--navy)}
+.bonification-category{box-shadow:inset 3px 0 0 var(--orange)}
+.bonus-category{box-shadow:inset 3px 0 0 var(--blue)}
+.premiation-category{box-shadow:inset 3px 0 0 #b18421}
+.remuneration-lines{display:grid}
+.remuneration-line{display:flex;align-items:center;justify-content:space-between;gap:16px;padding:11px 0;border-bottom:1px solid #edf1f4}
+.remuneration-line:last-child{border-bottom:0}
+.remuneration-line>div{min-width:0}
+.remuneration-line>div>strong{display:block;color:#52667b;font-size:10px}
+.remuneration-line>div>span{display:block;margin-top:3px;color:#8996a4;font-size:8px;line-height:1.35}
+.remuneration-line>strong{white-space:nowrap;color:#8b98a5;font-size:11px}
+.remuneration-line.earned>div>strong{color:var(--navy)}
+.remuneration-line.earned>strong{color:#17815a}
+.remuneration-focus{margin-top:12px;padding:13px;border-radius:12px;background:#fff7ef;border:1px solid #f2dfcf}
+.remuneration-focus span{display:block;color:#956839;font-size:7.5px;font-weight:800;letter-spacing:.06em;text-transform:uppercase}
+.remuneration-focus strong{display:block;margin-top:4px;color:var(--navy);font-size:20px}
+.remuneration-focus small{display:block;margin-top:5px;color:#8c7b68;font-size:8.5px}
+.remuneration-eligibility{display:flex;align-items:center;gap:7px;margin-top:9px;padding-top:9px;border-top:1px dashed #d9e2ea;color:#8392a0;font-size:8px}
+.remuneration-eligibility svg{width:14px;color:var(--blue)}
+.commission-rules-note{display:flex;align-items:flex-start;gap:10px;margin-top:10px;padding:12px 14px;border:1px solid #e2e8ee;border-radius:13px;background:#fafcfd;color:#728396}
+.commission-rules-note>svg{width:17px;flex:0 0 auto;color:var(--orange)}
+.commission-rules-note strong{display:block;color:var(--navy);font-size:10px}
+.commission-rules-note p{margin:4px 0 0;font-size:8.5px;line-height:1.5}
+@media(max-width:1250px){.commission-summary-grid{grid-template-columns:repeat(3,1fr)}.indicator-goal-form{grid-template-columns:repeat(2,1fr)}.indicator-save{grid-column:1/-1}.indicator-team-row{min-width:980px}.indicator-team-list{overflow:auto}}
+@media(max-width:900px){.remuneration-breakdown{grid-template-columns:1fr}.commission-summary-grid{grid-template-columns:repeat(2,1fr)}.commission-variable-total{min-width:0}.commission-person-head-v30{display:grid}.commission-variable-total{text-align:left;padding:10px 0 0;border-left:0;border-top:1px solid #dce5ed}}
+@media(max-width:620px){.commission-summary-grid{grid-template-columns:1fr}.indicator-goal-form{grid-template-columns:1fr}.remuneration-line{align-items:flex-start}.commission-detail-v30 .commission-production{grid-template-columns:1fr!important}}

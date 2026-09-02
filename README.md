@@ -160,3 +160,19 @@ O conteúdo e os indicadores foram mantidos. A versão reorganiza a hierarquia v
 - A visualização possui botão Voltar aos indicadores, navegação Anterior/Próximo em ordem alfabética e a opção Ver todos os vendedores.
 - Ver todos os vendedores abre uma busca e uma grade alfabética para trocar de vendedor sem sair do dashboard.
 - O dashboard continua calculado somente com vendas auditadas como OK.
+
+
+## V30 - vendedores completos e remuneração FCA
+
+- Lista de vendedores atualizada para 32 nomes em Indicadores, Comissões e demais seletores que usam o catálogo central.
+- A área Comissões agora considera somente vendas auditadas como **OK**.
+- A remuneração foi separada em quatro grupos para não misturar conceitos:
+  - **Comissão:** faixas por matrículas + comissão sobre quitado.
+  - **Bonificação:** produção de matrículas em boleto.
+  - **Bônus:** superação de meta de boleto + superação de meta de quitado.
+  - **Premiações:** ranking mensal; destaque semanal e consistência permanecem identificados separadamente.
+- O salário base de R$ 1.763,00 aparece como **Fixo base**, fora do total de comissão.
+- Indicadores ganhou o campo **Meta de quitado (bônus FCA)** para não confundir a meta geral de faturamento com a meta usada no bônus de quitado.
+- A regra de bônus/premiações que exige 3 meses aparece como condição de elegibilidade; o painel calcula o valor atingido pela produção, mas a concessão final depende dessa validação.
+- A bonificação por produção em boleto usa a quantidade de matrículas registradas nas vendas em boleto (`course_quantity`).
+- A comissão sobre quitado usa o valor das vendas em Cartão como valor quitado no modelo atual.

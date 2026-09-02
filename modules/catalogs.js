@@ -54,6 +54,36 @@ export const LOGIN_ACCOUNTS = {
 };
 
 export const SELLERS = [
-  'Cauê Galates', 'Daniela Moura', 'Lara Baptista', 'Letícia Vieira',
-  'Beatriz', 'Gabriel', 'Alana', 'Giseli', 'Nathália'
+  'Alana Santos',
+  'Ana Kelly',
+  'Ana Luiza',
+  'Beatriz Cunha',
+  'Bianca Domingues',
+  'Bruna Moraes',
+  'Camilly Longhi',
+  'Carliane',
+  'Cauê Galates',
+  'Chrystian',
+  'Daniela Moura',
+  'Estephany',
+  'Fabiana Godoy',
+  'Gabriel Gorgonio',
+  'Gabrielle Andrade',
+  'Gabrielle Carvalho',
+  'Giseli de Jesus',
+  'Jane menezes',
+  'Kevin Cristovão',
+  'Lara Baptista',
+  'Leticia Pereira',
+  'Letícia Goretti',
+  'Letícia Vieira',
+  'Lucas Eduardo',
+  'Maria Laura',
+  'Melissa Ferreira',
+  'Nathália',
+  'Nícolas',
+  'Paola Fernandes',
+  'Raíssa Fontoura',
+  'Rodolfo Henrique',
+  'Vinicius Ribeiro'
 ];

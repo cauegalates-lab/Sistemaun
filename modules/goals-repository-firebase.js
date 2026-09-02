@@ -14,6 +14,7 @@ function normalize(raw={}){
     revenue_goal: Math.max(Number(raw.revenue_goal || 0),0),
     enrollment_goal: Math.max(Number(raw.enrollment_goal || 0),0),
     boleto_goal: Math.max(Number(raw.boleto_goal || 0),0),
+    quitado_goal: Math.max(Number(raw.quitado_goal || 0),0),
     updated_by: raw.updated_by || '', updated_by_uid: raw.updated_by_uid || '', updated_at: raw.updated_at || ''
   };
 }
