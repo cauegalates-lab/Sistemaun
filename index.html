@@ -28,25 +28,10 @@
 
         <form id="loginForm" class="login-form" autocomplete="off">
           <label class="field">
-            <span>Usuário</span>
+            <span>E-mail</span>
             <div class="field-control">
-              <i data-lucide="user-round"></i>
-              <select id="loginUser" required aria-label="Selecione seu usuário">
-                <option value="">Selecione seu usuário</option>
-                <option value="gestor@unifahe.com.br">Gestor</option>
-                <option value="auditoria@unifahe.com.br">Auditoria</option>
-                <optgroup label="Vendedores">
-                  <option value="caue@unifahe.com.br">Cauê Galates</option>
-                  <option value="daniela@unifahe.com.br">Daniela Moura</option>
-                  <option value="lara@unifahe.com.br">Lara Baptista</option>
-                  <option value="leticia@unifahe.com.br">Letícia Vieira</option>
-                  <option value="beatriz@unifahe.com.br">Beatriz</option>
-                  <option value="gabriel@unifahe.com.br">Gabriel</option>
-                  <option value="alana@unifahe.com.br">Alana</option>
-                  <option value="giseli@unifahe.com.br">Giseli</option>
-                  <option value="nathalia@unifahe.com.br">Nathália</option>
-                </optgroup>
-              </select>
+              <i data-lucide="mail"></i>
+              <input id="email" type="email" placeholder="seuemail@unifahe.com.br" required />
             </div>
           </label>
           <label class="field">
@@ -59,6 +44,14 @@
           </label>
           <p id="loginError" class="login-error" role="alert"></p>
           <button class="primary-button" type="submit">Entrar</button>
+          <div class="demo-access" aria-label="Acessos rápidos para pré-visualização">
+            <span>Acessos rápidos</span>
+            <div class="demo-buttons">
+              <button type="button" data-demo="vendedor">Vendedor</button>
+              <button type="button" data-demo="gestor">Gestor</button>
+              <button type="button" data-demo="auditoria">Auditoria</button>
+            </div>
+          </div>
         </form>
       </section>
     </main>

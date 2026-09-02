@@ -1,0 +1,24 @@
+rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+    function signedIn() { return request.auth != null; }
+    function user() { return firestore.get(/databases/(default)/documents/users/$(request.auth.uid)).data; }
+    function active() { return signedIn() && user().active == true; }
+    function isManager() { return active() && user().role == 'gestor'; }
+    function isAudit() { return active() && user().role == 'auditoria'; }
+    function isSeller() { return active() && user().role == 'vendedor'; }
+    function ownsSale(saleId) {
+      return isSeller() && firestore.get(/databases/(default)/documents/sales/$(saleId)).data.seller_uid == request.auth.uid;
+    }
+    function validReceipt() {
+      return request.resource.size <= 3 * 1024 * 1024 &&
+        request.resource.contentType.matches('application/pdf|image/jpeg|image/png|image/webp|application/msword|application/vnd.openxmlformats-officedocument.wordprocessingml.document|application/vnd.oasis.opendocument.text|application/octet-stream');
+    }
+
+    match /sales/{saleId}/{fileName} {
+      allow read: if active() && (isManager() || isAudit() || ownsSale(saleId));
+      allow create, update: if active() && (isManager() || ownsSale(saleId)) && validReceipt();
+      allow delete: if active() && (isManager() || ownsSale(saleId));
+    }
+  }
+}

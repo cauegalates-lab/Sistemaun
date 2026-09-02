@@ -39,18 +39,18 @@ export const COURSES = [
   'Estética e Cosmética', 'Outro'
 ];
 
-export const DEMO_USERS = {
-  'gestor@unifahe.com.br': { password: '123456', id: 'manager-demo', name: 'Gestor UNIFAHE', role: 'gestor' },
-  'auditoria@unifahe.com.br': { password: '123456', id: 'audit-demo', name: 'Auditoria UNIFAHE', role: 'auditoria' },
-  'caue@unifahe.com.br': { password: '123456', id: 'seller-caue', name: 'Cauê Galates', role: 'vendedor' },
-  'daniela@unifahe.com.br': { password: '123456', id: 'seller-daniela', name: 'Daniela Moura', role: 'vendedor' },
-  'lara@unifahe.com.br': { password: '123456', id: 'seller-lara', name: 'Lara Baptista', role: 'vendedor' },
-  'leticia@unifahe.com.br': { password: '123456', id: 'seller-leticia', name: 'Letícia Vieira', role: 'vendedor' },
-  'beatriz@unifahe.com.br': { password: '123456', id: 'seller-beatriz', name: 'Beatriz', role: 'vendedor' },
-  'gabriel@unifahe.com.br': { password: '123456', id: 'seller-gabriel', name: 'Gabriel', role: 'vendedor' },
-  'alana@unifahe.com.br': { password: '123456', id: 'seller-alana', name: 'Alana', role: 'vendedor' },
-  'giseli@unifahe.com.br': { password: '123456', id: 'seller-giseli', name: 'Giseli', role: 'vendedor' },
-  'nathalia@unifahe.com.br': { password: '123456', id: 'seller-nathalia', name: 'Nathália', role: 'vendedor' }
+export const LOGIN_ACCOUNTS = {
+  'gestor@unifahe.com.br': { name: 'Gestor', role: 'gestor' },
+  'auditoria@unifahe.com.br': { name: 'Auditoria', role: 'auditoria' },
+  'caue@unifahe.com.br': { name: 'Cauê Galates', role: 'vendedor' },
+  'daniela@unifahe.com.br': { name: 'Daniela Moura', role: 'vendedor' },
+  'lara@unifahe.com.br': { name: 'Lara Baptista', role: 'vendedor' },
+  'leticia@unifahe.com.br': { name: 'Letícia Vieira', role: 'vendedor' },
+  'beatriz@unifahe.com.br': { name: 'Beatriz', role: 'vendedor' },
+  'gabriel@unifahe.com.br': { name: 'Gabriel', role: 'vendedor' },
+  'alana@unifahe.com.br': { name: 'Alana', role: 'vendedor' },
+  'giseli@unifahe.com.br': { name: 'Giseli', role: 'vendedor' },
+  'nathalia@unifahe.com.br': { name: 'Nathália', role: 'vendedor' }
 };
 
 export const SELLERS = [

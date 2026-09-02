@@ -1,0 +1,70 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function signedIn() { return request.auth != null; }
+    function profilePath() { return /databases/$(database)/documents/users/$(request.auth.uid); }
+    function hasProfile() { return signedIn() && exists(profilePath()); }
+    function profile() { return get(profilePath()).data; }
+    function active() { return hasProfile() && profile().active == true; }
+    function isManager() { return active() && profile().role == 'gestor'; }
+    function isAudit() { return active() && profile().role == 'auditoria'; }
+    function isSeller() { return active() && profile().role == 'vendedor'; }
+
+    match /users/{uid} {
+      allow read: if active() && (request.auth.uid == uid || isManager());
+      allow create, update, delete: if false;
+    }
+
+    match /sales/{saleId} {
+      allow read: if active() && (
+        isManager() || isAudit() || (isSeller() && resource.data.seller_uid == request.auth.uid)
+      );
+
+      allow create: if active() && (
+        isManager() || (isSeller() && request.resource.data.seller_uid == request.auth.uid)
+      );
+
+      allow update: if active() && (
+        isManager() ||
+        (isAudit() && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+          'audit_status','audited_by','audited_at','sheet_sync_status','sheet_synced_at','sheet_sync_error','updated_at'
+        ])) ||
+        (isSeller() && resource.data.seller_uid == request.auth.uid &&
+          request.resource.data.diff(resource.data).affectedKeys().hasOnly(['receipts','updated_at']))
+      );
+
+      allow delete: if isManager();
+    }
+
+    match /sales_goals/{goalId} {
+      allow read: if active() && (
+        isManager() || (isSeller() && resource.data.seller_uid == request.auth.uid)
+      );
+      allow create, update, delete: if isManager();
+    }
+
+    match /fca_reports/{reportId} {
+      allow read: if active() && (isManager() || (isSeller() && resource.data.seller_uid == request.auth.uid));
+      allow create: if isSeller() && request.resource.data.seller_uid == request.auth.uid;
+      allow update: if active() && (
+        isManager() ||
+        (isSeller() && resource.data.seller_uid == request.auth.uid &&
+          request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+            'status','feedback_response','feedback_responded_at','updated_at'
+          ]))
+      );
+      allow delete: if isManager();
+    }
+
+    match /fca_actions/{actionId} {
+      allow read: if active() && (isManager() || (isSeller() && resource.data.seller_uid == request.auth.uid));
+      allow create: if isManager();
+      allow update: if active() && (
+        isManager() ||
+        (isSeller() && resource.data.seller_uid == request.auth.uid &&
+          request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status','completed_at']))
+      );
+      allow delete: if isManager();
+    }
+  }
+}

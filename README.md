@@ -1,111 +1,162 @@
-# Painel Comercial UNIFAHE — V15
+# Painel Comercial UNIFAHE — V24
 
-Versão com vendas, auditoria por perfil, até três comprovantes, dashboard no Início, FCA vendedor ↔ gestor, comissões e perfil com foto.
+## Acesso temporário para pré-visualização
 
-## Ajustes V15
+Nesta versão, o painel mantém toda a estrutura visual e os arquivos de integração Firebase da V22, mas o login está temporariamente em **modo de pré-visualização** para facilitar os testes.
 
-- Clicar no seletor de auditoria não expande mais os detalhes da venda; a linha só expande quando o clique ocorre em uma área informativa da própria venda.
-- O comportamento foi tratado no manipulador principal da linha, evitando conflito com controles interativos presentes na tabela.
-- As mensagens de auditoria agora abrem para a direita do ícone, com seta visual, evitando corte junto à lateral esquerda da tabela/menu.
+- **Vendedor:** `vendedor@unifahe.com.br` / `123456`
+- **Gestor:** `gestor@unifahe.com.br` / `123456`
+- **Auditoria:** `auditoria@unifahe.com.br` / `123456`
 
-## Ajustes V13
+Na tela de login, basta clicar em **Vendedor**, **Gestor** ou **Auditoria** para preencher e-mail e senha; depois clique em **Entrar**. O botão **Sair** retorna à mesma tela.
 
-- A auditoria passou a ser definida diretamente por um select na coluna da venda, sem abrir modal central.
-- O select permite escolher somente **Venda OK** ou **Venda não OK**, mantendo **Pendente** enquanto ainda não houver decisão.
-- No visualizador de comprovantes, o zoom continua na roda do mouse e o deslocamento da imagem agora é feito segurando o **botão esquerdo** e arrastando.
+Enquanto esse modo estiver ativo, vendas, comprovantes e FCA usados nos testes ficam somente no navegador para não depender dos usuários definitivos do Firebase. A arquitetura Firebase permanece separada e pronta no projeto. Para reativá-la depois, altere `PREVIEW_LOGIN_ENABLED` para `false` em `modules/runtime.js`.
+
+---
+
+A V22 substitui o Supabase pelo Firebase fornecido para o projeto:
+
+- Firebase Authentication: login real por senha.
+- Cloud Firestore: vendas, auditoria e FCA.
+- Firebase Storage: comprovantes de vendas.
+- Google Sheets: recebe a venda somente após Auditoria/Gestor marcar **Venda OK**.
+- Vercel: hospeda o painel e protege o token do webhook da planilha.
+
+## Firebase conectado
+
+Projeto: `sistema-comercial-647ed`
+
+O `firebaseConfig` público está centralizado em `modules/firebase.js`. A API key Web do Firebase não é uma senha administrativa; as permissões reais ficam nas Rules e no Authentication.
+
+## 1. Ative Authentication
+
+Firebase Console → Authentication → Sign-in method → Email/Password → Ativar.
+
+Crie estes usuários no Authentication com as senhas que você definir:
+
+| Login exibido | E-mail interno do Firebase | role |
+|---|---|---|
+| Gestor | gestor@unifahe.com.br | gestor |
+| Auditoria | auditoria@unifahe.com.br | auditoria |
+| Cauê Galates | caue@unifahe.com.br | vendedor |
+| Daniela Moura | daniela@unifahe.com.br | vendedor |
+| Lara Baptista | lara@unifahe.com.br | vendedor |
+| Letícia Vieira | leticia@unifahe.com.br | vendedor |
+| Beatriz | beatriz@unifahe.com.br | vendedor |
+| Gabriel | gabriel@unifahe.com.br | vendedor |
+| Alana | alana@unifahe.com.br | vendedor |
+| Giseli | giseli@unifahe.com.br | vendedor |
+| Nathália | nathalia@unifahe.com.br | vendedor |
+
+No painel o usuário não digita e-mail: escolhe o nome no select e informa apenas a senha.
+
+## 2. Crie o Firestore
+
+Firebase Console → Firestore Database → Create database.
+
+Depois abra a aba **Rules**, substitua pelas regras do arquivo `firestore.rules` e publique.
+
+## 3. Crie os perfis em `users`
+
+Após criar cada usuário no Authentication, copie o UID dele.
+
+No Firestore crie a coleção `users`. O ID de cada documento deve ser exatamente o UID do Authentication.
+
+Exemplo Gestor:
+
+```json
+{
+  "name": "Gestor",
+  "email": "gestor@unifahe.com.br",
+  "role": "gestor",
+  "active": true
+}
+```
+
+Exemplo vendedor:
+
+```json
+{
+  "name": "Cauê Galates",
+  "email": "caue@unifahe.com.br",
+  "role": "vendedor",
+  "active": true
+}
+```
+
+Auditoria usa `role: "auditoria"`.
+
+IMPORTANTE: o campo `name` dos vendedores deve ser exatamente igual ao nome mostrado no select. Isso permite ao Gestor lançar uma venda em nome de qualquer vendedor e o sistema localizar o UID correto.
+
+## 4. Ative Storage para comprovantes
+
+Firebase Console → Storage → Get started.
+
+Publique o conteúdo de `storage.rules` nas Rules do Storage.
+
+Cada venda aceita até três comprovantes, com no máximo 3 MB cada. Auditoria pode visualizar, mas não adicionar nem excluir.
+
+## 5. Google Sheets após Venda OK
+
+O fluxo é:
+
+1. Vendedor lança → Firestore.
+2. Comprovantes → Firebase Storage.
+3. Auditoria avalia.
+4. Pendente / Falta documentação / Falta comprovante → não envia à planilha.
+5. Venda OK → `/api/sheet-sync` valida a sessão Firebase, lê a venda diretamente no Firestore e envia ao Apps Script.
+6. Apps Script grava/updata pela coluna `ID VENDA` na aba `Vendas`.
+
+Planilha já definida:
+`1BzqFOj4TaLjpgRmnocQxxlQq8O7wWeOQsxbTzZI0gUQ`
+
+Aba: `Vendas`.
+
+Use `google-apps-script.gs` em Extensões → Apps Script da planilha.
+
+Na Vercel ficam somente:
+
+```env
+GOOGLE_SHEETS_WEBHOOK_URL=https://script.google.com/macros/s/SEU_WEBAPP/exec
+GOOGLE_SHEETS_WEBHOOK_TOKEN=SEU_TOKEN
+```
+
+O mesmo token deve estar nas Propriedades do Script do Apps Script como `WEBHOOK_TOKEN`.
+
+## 6. Arquitetura
+
+- `modules/firebase.js` — inicialização, Authentication e perfil do usuário.
+- `modules/repository.js` — Firestore + Storage para vendas/comprovantes.
+- `modules/fca-repository.js` — Firestore para FCA e ações.
+- `firestore.rules` — permissões por perfil.
+- `storage.rules` — permissões dos comprovantes.
+- `api/sheet-sync.js` — valida token Firebase e envia somente venda OK ao Google Sheets.
+
+Não há mais código do Supabase nesta versão.
 
 
-## Ajustes V11
+## Ajustes V24
+- Auditoria com ícones mais minimalistas e status amarelo identificado como **Pendente**.
+- Tooltip de auditoria é encerrado imediatamente após seleção para não permanecer travado na tela.
+- Área de comprovantes abre diretamente com o campo de anexar arquivo; não existe mais a etapa “Adicionar novo comprovante”.
 
-### Comprovantes
-- O visualizador continua abrindo dentro do próprio painel.
-- Para imagens, a roda do mouse controla o zoom: para frente aumenta e para trás diminui.
-- As barras de rolagem foram removidas do visualizador de imagem.
-- Para navegar em uma imagem ampliada, segure o botão esquerdo do mouse e arraste.
-- Em telas touch, o arraste continua disponível pelo toque.
-- O botão Voltar retorna à lista dos comprovantes.
+## V25 — dashboard individual e metas do gestor
 
-### Navegação e Dashboard
-- O item Dashboard foi removido do menu lateral.
-- O Dashboard é a própria página Início.
-- Gestor: inicia no Dashboard geral e pode alternar para o individual dentro da própria página.
-- Vendedor: inicia no Dashboard individual e não possui acesso ao geral.
-
-### Perfil Auditoria
-- Novo perfil `auditoria`.
-- O menu mostra somente Vendas.
-- Pode visualizar todas as vendas.
-- Pode definir Venda OK ou Venda não OK.
-- Pode abrir e visualizar comprovantes.
-- Não pode lançar vendas, adicionar comprovantes nem excluir comprovantes.
-
-### FCA
-- Vendedor envia relatório semanal ou mensal ao gestor.
-- O relatório registra período, indicador principal, situação, motivo, pontos positivos, dificuldades, próxima ação e apoio necessário.
-- O painel calcula e salva junto ao FCA um resumo do período: faturado, vendas, matrículas, quitados/cartão e boletos.
-- Gestor recebe os relatórios no próprio FCA.
-- Ao abrir um relatório, o gestor pode solicitar feedback ao vendedor ou criar uma ação.
-- Solicitação de feedback aparece no FCA do vendedor e permite resposta.
-- Ações criadas pelo gestor aparecem no FCA do vendedor com título, descrição e prazo.
-- O vendedor pode marcar a ação como concluída.
-
-## Acessos de demonstração
-
-- Gestor: `gestor@unifahe.com.br` / `123456`
-- Vendedor: `vendedor@unifahe.com.br` / `123456`
-- Auditoria: `auditoria@unifahe.com.br` / `123456`
-
-## Banco
-
-Execute o `supabase.sql` atualizado para criar as tabelas `fca_reports` e `fca_actions` além das estruturas já existentes de vendas e comprovantes.
-
-## Estrutura principal
-
-- `index.html` — base da aplicação e login.
-- `styles.css` — interface e responsividade.
-- `app.js` — navegação, vendas, auditoria, comprovantes, FCA, dashboard e comissões.
-- `modules/repository.js` — vendas e comprovantes.
-- `modules/fca-repository.js` — relatórios FCA, feedbacks e ações.
-- `modules/dashboard.js` — métricas e gráficos.
-- `modules/commissions.js` — produção e bonificações.
-- `api/fca.js` — persistência do fluxo FCA.
-- `supabase.sql` — esquema completo atualizado.
-
-## Auditoria por ícones
-
-A auditoria agora usa um seletor visual compacto: check verde = Venda OK, X vermelho = Falta comprovante e bolinha amarela = Falta documentação. Os três estados exibem a descrição ao passar o ponteiro e podem ser escolhidos diretamente pelo perfil autorizado.
+- O **Início do vendedor** agora usa um dashboard exclusivo, com as metas mensais de **faturamento**, **matrículas** e **boletos**.
+- Para cada meta são mostrados: realizado/meta, **gap do ritmo**, quanto falta, quanto precisa produzir por dia útil restante, projeção de fechamento e percentual atingido.
+- O cálculo de dias úteis considera **segunda a sexta-feira**.
+- O **dashboard geral do gestor foi mantido**.
+- O gestor ganhou o menu **Indicadores**, onde escolhe o mês e o vendedor e define as três metas.
+- Em modo de pré-visualização as metas ficam no `localStorage`. No Firebase ficam na coleção `sales_goals`.
+- Publique o `firestore.rules` desta versão antes de ativar o login Firebase definitivo, pois ele inclui as permissões de `sales_goals`.
 
 
-## V19
-- Card de login centralizado no viewport.
-- Mantidos os acessos de demonstração: ao clicar em Vendedor, Gestor ou Auditoria, e-mail e senha são preenchidos automaticamente, sem efetuar login até clicar em Entrar.
+## V28 — refinamento visual do dashboard do vendedor
+O conteúdo e os indicadores foram mantidos. A versão reorganiza a hierarquia visual, integra dias úteis/restantes/vendas OK ao hero azul, refina metas, resultado de hoje e composição dos gráficos.
 
-## V20 — Google Sheets somente após Auditoria OK
 
-A aba **Vendas** da planilha `1BzqFOj4TaLjpgRmnocQxxlQq8O7wWeOQsxbTzZI0gUQ` passa a receber a venda somente quando o perfil autorizado marca **Venda OK**.
-
-### Fluxo
-1. Vendedor/Gestor lança a venda → salva apenas no banco.
-2. Auditoria deixa como Pendente, Falta documentação ou Falta comprovante → nada é enviado à planilha.
-3. Auditoria marca **Venda OK** → a API envia todos os dados da venda para a aba `Vendas`.
-4. O `ID VENDA` é usado como chave: se a mesma venda for reenviada, a linha é atualizada em vez de duplicada.
-5. Se a sincronização falhar, o banco grava `sheet_sync_status = error`; selecionar OK novamente tenta o envio outra vez.
-
-### Dados enviados
-ID da venda, data, vendedor, aluno, pagamento, taxa/parcela, parcelas, valor total, modalidade, pendência, curso, estado, origem, quantidade de cursos, dados da auditoria, quantidade e nomes dos até 3 comprovantes, criação e data de sincronização.
-
-### Configuração do Google Sheets
-1. Abra a planilha informada e acesse **Extensões → Apps Script**.
-2. Cole o conteúdo de `google-apps-script.gs`.
-3. Em **Configurações do projeto → Propriedades do script**, crie `WEBHOOK_TOKEN` com um token longo e secreto.
-4. Clique em **Implantar → Nova implantação → App da Web**.
-5. Execute como **você** e permita acesso ao endpoint do Web App.
-6. Copie a URL terminada em `/exec` para `GOOGLE_SHEETS_WEBHOOK_URL` na Vercel.
-7. Use o mesmo token em `GOOGLE_SHEETS_WEBHOOK_TOKEN` na Vercel.
-8. Execute novamente `supabase.sql` no Supabase para adicionar `sheet_synced_at` e `sheet_sync_error` caso a tabela já exista.
-
-O Apps Script não apaga colunas existentes: ele adiciona os cabeçalhos necessários que estiverem faltando e faz o upsert pelo `ID VENDA`.
-
-## Login temporário por seleção
-
-O login de demonstração agora usa um **select de usuário**. No topo aparecem **Gestor** e **Auditoria**; abaixo ficam os vendedores. O usuário escolhe o próprio nome e informa somente a senha. Enquanto a autenticação real não for definida, todos os acessos de demonstração usam a senha `123456`.
+## V29 — Dashboard do vendedor dentro de Indicadores
+- No perfil Gestor, clicar em um vendedor na lista de Indicadores abre o mesmo dashboard individual daquele vendedor.
+- A visualização possui botão Voltar aos indicadores, navegação Anterior/Próximo em ordem alfabética e a opção Ver todos os vendedores.
+- Ver todos os vendedores abre uma busca e uma grade alfabética para trocar de vendedor sem sair do dashboard.
+- O dashboard continua calculado somente com vendas auditadas como OK.

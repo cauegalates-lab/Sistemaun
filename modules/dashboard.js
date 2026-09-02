@@ -9,7 +9,7 @@ function sumByPayment(rows,type){ return rows.filter(r=>r.payment_type===type).r
 
 export function calculateDashboard(rows, { from, to, seller = '', goals = {} }) {
   // Venda explicitamente marcada como "não OK" deixa de compor os resultados.
-  let selected = byDate(rows.filter(r => r.audit_status !== 'not_ok'), from, to);
+  let selected = byDate(rows.filter(r => r.audit_status === 'ok'), from, to);
   if (seller) selected = selected.filter(r => r.seller_name === seller);
   const monthKey = (to || todayISO()).slice(0,7);
   const monthly = selected.filter(r => r.sale_date.startsWith(monthKey));
@@ -51,6 +51,68 @@ export function calculateDashboard(rows, { from, to, seller = '', goals = {} }) 
       revenuePct: goalRevenue ? Math.min((faturadoMensal / goalRevenue) * 100, 100) : 0,
       enrollPct: goalEnroll ? Math.min((matriculasMensais / goalEnroll) * 100, 100) : 0
     }
+  };
+}
+
+
+function businessDaysInMonth(monthKey){
+  if(!/^\d{4}-\d{2}$/.test(monthKey||'')) return 0;
+  const [year,month]=monthKey.split('-').map(Number);
+  const lastDay=new Date(year,month,0).getDate();
+  let count=0;
+  for(let day=1;day<=lastDay;day++){
+    const weekDay=new Date(year,month-1,day,12).getDay();
+    if(weekDay>=1 && weekDay<=5) count++;
+  }
+  return count;
+}
+
+function businessDaysThrough(monthKey, dateKey){
+  if(!/^\d{4}-\d{2}$/.test(monthKey||'')) return 0;
+  const [year,month]=monthKey.split('-').map(Number);
+  const lastDay=new Date(year,month,0).getDate();
+  const limit=(dateKey||'').startsWith(monthKey) ? Math.min(Number(dateKey.slice(8,10)||0),lastDay) : ((dateKey||'') > `${monthKey}-31` ? lastDay : 0);
+  let count=0;
+  for(let day=1;day<=limit;day++){
+    const weekDay=new Date(year,month-1,day,12).getDay();
+    if(weekDay>=1 && weekDay<=5) count++;
+  }
+  return count;
+}
+
+function goalMetric(actual, goal, elapsedBusinessDays, totalBusinessDays, isCurrentOrFuture=true){
+  const target=Math.max(Number(goal||0),0);
+  const realized=Math.max(Number(actual||0),0);
+  const expected=target && totalBusinessDays ? target*(elapsedBusinessDays/totalBusinessDays) : 0;
+  const gap=realized-expected;
+  const missing=Math.max(target-realized,0);
+  const remaining=Math.max(totalBusinessDays-elapsedBusinessDays,0);
+  const dailyNeed=missing && remaining ? missing/remaining : 0;
+  const projection=elapsedBusinessDays ? (realized/elapsedBusinessDays)*totalBusinessDays : (isCurrentOrFuture?0:realized);
+  const pct=target ? Math.min((realized/target)*100,100) : 0;
+  return {actual:realized,goal:target,expected,gap,missing,dailyNeed,projection,pct};
+}
+
+export function calculateSellerDashboard(rows,{month,seller,goals={},referenceDate=todayISO()}){
+  const monthKey=month || referenceDate.slice(0,7);
+  const monthRows=rows.filter(r=>r.audit_status==='ok' && r.seller_name===seller && String(r.sale_date||'').startsWith(monthKey));
+  const todayRows=monthRows.filter(r=>r.sale_date===referenceDate);
+  const revenue=sum(monthRows,r=>r.total_value);
+  const enroll=sum(monthRows,r=>r.course_quantity);
+  const boletos=monthRows.filter(r=>r.payment_type==='boleto').length;
+  const todayRevenue=sum(todayRows,r=>r.total_value);
+  const todayEnroll=sum(todayRows,r=>r.course_quantity);
+  const todayBoletos=todayRows.filter(r=>r.payment_type==='boleto').length;
+  const totalBusinessDays=businessDaysInMonth(monthKey);
+  const elapsedBusinessDays=businessDaysThrough(monthKey,referenceDate);
+  const remainingBusinessDays=Math.max(totalBusinessDays-elapsedBusinessDays,0);
+  const isPast=monthKey < referenceDate.slice(0,7);
+  return {
+    month:monthKey, monthRows, todayRows, totalBusinessDays, elapsedBusinessDays, remainingBusinessDays,
+    today:{revenue:todayRevenue,enroll:todayEnroll,boletos:todayBoletos,sales:todayRows.length},
+    revenue:goalMetric(revenue,goals.revenue_goal,elapsedBusinessDays,totalBusinessDays,!isPast),
+    enroll:goalMetric(enroll,goals.enrollment_goal,elapsedBusinessDays,totalBusinessDays,!isPast),
+    boleto:goalMetric(boletos,goals.boleto_goal,elapsedBusinessDays,totalBusinessDays,!isPast)
   };
 }
 
@@ -138,4 +200,97 @@ function buildProjection(rows, endDate, revenueGoal, enrollGoal){
     revenueGoal:labels.map((_,i)=>revenueGoal?revenueGoal*(i+1)/days:0),
     enrollGoal:labels.map((_,i)=>enrollGoal?enrollGoal*(i+1)/days:0)
   };
+}
+
+
+function daysInMonth(monthKey){
+  if(!/^\d{4}-\d{2}$/.test(monthKey||'')) return 30;
+  const [year,month]=monthKey.split('-').map(Number);
+  return new Date(year,month,0).getDate();
+}
+
+function sellerPaymentDistribution(rows){
+  return {
+    cartao: sumByPayment(rows,'cartao'),
+    boleto: sumByPayment(rows,'boleto'),
+    semTaxa: sumByPayment(rows,'sem_taxa_migracao')
+  };
+}
+
+function buildSellerRevenueTrend(data){
+  const days = daysInMonth(data.month);
+  const labels = Array.from({length:days},(_,i)=>String(i+1));
+  const map = new Map();
+  data.monthRows.forEach(row=>{
+    const d = Number(String(row.sale_date||'').slice(8,10));
+    if(!d) return;
+    map.set(d,(map.get(d)||0)+Number(row.total_value||0));
+  });
+  let cumulative=0;
+  const actual=[];
+  for(let day=1;day<=days;day++){
+    cumulative += map.get(day)||0;
+    actual.push(cumulative);
+  }
+  const goalLine = labels.map((_,i)=>data.revenue.goal ? data.revenue.goal*((i+1)/days) : 0);
+  let currentDay = data.elapsedBusinessDays ? Math.min(Number((todayISO()).slice(8,10)), days) : days;
+  if(!todayISO().startsWith(data.month)) currentDay = days;
+  const projectedTotal = Math.max(Number(data.revenue.projection||0), Number(data.revenue.actual||0));
+  const startValue = actual[Math.max(currentDay-1,0)] || 0;
+  const projection=[];
+  for(let day=1; day<=days; day++){
+    if(day < currentDay) projection.push(null);
+    else if(day === currentDay) projection.push(startValue);
+    else {
+      const remainingDays = Math.max(days-currentDay,1);
+      projection.push(startValue + ((projectedTotal-startValue) * ((day-currentDay)/remainingDays)));
+    }
+  }
+  return { labels, actual, goalLine, projection };
+}
+
+export function renderSellerCharts(root, data){
+  destroyCharts();
+  if (!window.Chart) return;
+  Chart.defaults.font.family = '"Neue Montreal", "Inter", sans-serif';
+  Chart.defaults.color = '#667085';
+  const navy = '#122945', orange = '#ee5a00', blue = '#3e99dd', gray = '#c4d0db';
+
+  const trend = buildSellerRevenueTrend(data);
+  const lineCanvas = root.querySelector('#sellerProjectionChart');
+  if (lineCanvas) chartInstances.push(new Chart(lineCanvas, {
+    type:'line',
+    data:{ labels:trend.labels, datasets:[
+      {label:'Faturamento acumulado', data:trend.actual, borderColor:orange, backgroundColor:orange, tension:.3, pointRadius:2, pointHoverRadius:4, borderWidth:2.4, fill:false},
+      {label:'Meta em linha de ritmo', data:trend.goalLine, borderColor:navy, borderDash:[7,5], pointRadius:0, borderWidth:2, fill:false},
+      {label:'Projeção de fechamento', data:trend.projection, borderColor:blue, borderDash:[4,4], pointRadius:0, borderWidth:2, fill:false}
+    ]},
+    options:{ responsive:true, maintainAspectRatio:false, interaction:{mode:'index',intersect:false}, plugins:{legend:{position:'bottom',labels:{boxWidth:9,usePointStyle:true,padding:16}}}, scales:{ y:{beginAtZero:true,grid:{color:'#e9eef5'},ticks:{callback:v=>money.format(v)}}, x:{grid:{display:false}} } }
+  }));
+
+  const mix = sellerPaymentDistribution(data.monthRows);
+  const doughnutCanvas = root.querySelector('#sellerMixChart');
+  if (doughnutCanvas) chartInstances.push(new Chart(doughnutCanvas, {
+    type:'doughnut',
+    data:{ labels:['Cartão','Boleto','Sem taxa migração'], datasets:[{ data:[mix.cartao,mix.boleto,mix.semTaxa], backgroundColor:[blue,orange,gray], borderWidth:0 }] },
+    options:{ responsive:true, maintainAspectRatio:false, cutout:'70%', plugins:{ legend:{position:'bottom', labels:{boxWidth:9, usePointStyle:true, padding:14}} } }
+  }));
+
+  const perfCanvas = root.querySelector('#sellerPerformanceChart');
+  if (perfCanvas) {
+    const actualPct = [data.revenue.pct, data.enroll.pct, data.boleto.pct];
+    const projectionPct = [
+      data.revenue.goal ? (data.revenue.projection / data.revenue.goal) * 100 : 0,
+      data.enroll.goal ? (data.enroll.projection / data.enroll.goal) * 100 : 0,
+      data.boleto.goal ? (data.boleto.projection / data.boleto.goal) * 100 : 0,
+    ];
+    chartInstances.push(new Chart(perfCanvas, {
+      type:'bar',
+      data:{ labels:['Faturamento','Matrículas','Boletos'], datasets:[
+        { label:'Atingido (%)', data:actualPct, backgroundColor:navy, borderRadius:10, maxBarThickness:30 },
+        { label:'Projeção (%)', data:projectionPct, backgroundColor:orange, borderRadius:10, maxBarThickness:30 }
+      ]},
+      options:{ responsive:true, maintainAspectRatio:false, plugins:{ legend:{position:'bottom',labels:{boxWidth:9,usePointStyle:true,padding:16}}, tooltip:{ callbacks:{ label:(ctx)=> `${ctx.dataset.label}: ${Number(ctx.parsed.y||0).toFixed(1).replace('.',',')}%` } } }, scales:{ y:{beginAtZero:true, suggestedMax:120, grid:{color:'#e9eef5'}, ticks:{callback:v=> `${v}%` } }, x:{grid:{display:false}} } }
+    }));
+  }
 }
