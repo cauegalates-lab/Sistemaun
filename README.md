@@ -1,4 +1,4 @@
-# Painel Comercial UNIFAHE — V24
+# Painel Comercial UNIFAHE — V34
 
 ## Acesso temporário para pré-visualização
 
@@ -176,3 +176,51 @@ O conteúdo e os indicadores foram mantidos. A versão reorganiza a hierarquia v
 - A regra de bônus/premiações que exige 3 meses aparece como condição de elegibilidade; o painel calcula o valor atingido pela produção, mas a concessão final depende dessa validação.
 - A bonificação por produção em boleto usa a quantidade de matrículas registradas nas vendas em boleto (`course_quantity`).
 - A comissão sobre quitado usa o valor das vendas em Cartão como valor quitado no modelo atual.
+
+## V31 — FCA > Painel Semanal de Performance
+
+O item **FCA** possui um submenu por hover chamado **Painel semanal de performance**.
+
+O painel replica a dinâmica do documento fornecido pela UNIFAHE:
+- Organizar e atualizar o CRM;
+- Não deixar nenhum lead parado;
+- Enviar 5 vídeos personalizados;
+- Realizar no mínimo 10 ligações;
+- Controle do desafio semanal com vendido no dia, meta semanal e quanto falta.
+
+### Regras
+- O gestor escolhe o vendedor e define manualmente o **Indicador** e a **Meta semanal**.
+- O vendedor marca as quatro atividades durante o dia.
+- O valor vendido é automático e considera somente vendas com auditoria **OK**.
+- Às **23:59 (horário de São Paulo)** o dia é fechado. O relatório registra o que foi realizado e o que não foi realizado, vendido do dia, acumulado, meta e saldo.
+- O relatório aparece em **FCA do Gestor > Relatório diário de performance**.
+- No modo de pré-visualização, o sistema faz o fechamento pendente quando o painel é reaberto após o horário limite.
+
+### Fechamento automático em produção
+O `vercel.json` agenda `/api/fca-daily-close` para `02:59 UTC` de terça a sábado, correspondente a 23:59 de segunda a sexta em `America/Sao_Paulo`.
+
+Configure na Vercel:
+- `FIREBASE_PROJECT_ID`
+- `FIREBASE_CLIENT_EMAIL`
+- `FIREBASE_PRIVATE_KEY`
+- `CRON_SECRET`
+
+Publique também as novas `firestore.rules`, que incluem `fca_weekly_goals` e `fca_weekly_performance`.
+
+
+## V32 — FCA semanal do vendedor
+
+- O gestor continua definindo manualmente a meta semanal e acompanhando o painel geral.
+- O vendedor recebe a mesma meta no próprio Painel Semanal de Performance.
+- A tela do vendedor foi integrada à página, reduzindo o uso de cards.
+- O topo mostra meta semanal, faturamento acumulado, saldo restante e percentual atingido.
+- O bloco principal do dia calcula quanto o vendedor precisa faturar hoje para voltar/manter o ritmo médio da semana.
+- As tarefas permanecem com check diário e o faturamento considera somente vendas com auditoria OK.
+- O fechamento diário às 23:59 e os relatórios do gestor permanecem inalterados.
+
+
+## V33
+- O FCA do vendedor agora incorpora o Painel Semanal de Performance recebido do gestor, com meta, orientação diária, acompanhamento de faturamento e check das tarefas.
+- O painel semanal do gestor e do vendedor foi visualmente integrado à página, reduzindo caixas/cards desnecessários.
+- O relatório diário do gestor destaca mais o nome do vendedor.
+- A Auditoria pode expandir a linha da venda para consultar os demais dados, mantendo somente visualização de comprovante e alteração do status de auditoria.

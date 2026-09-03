@@ -1,12 +1,28 @@
 {
-  "functions": { "api/**/*.js": { "maxDuration": 15 } },
+  "functions": {
+    "api/**/*.js": {
+      "maxDuration": 15
+    }
+  },
   "headers": [
     {
       "source": "/(.*)",
       "headers": [
-        { "key": "X-Content-Type-Options", "value": "nosniff" },
-        { "key": "Referrer-Policy", "value": "strict-origin-when-cross-origin" }
+        {
+          "key": "X-Content-Type-Options",
+          "value": "nosniff"
+        },
+        {
+          "key": "Referrer-Policy",
+          "value": "strict-origin-when-cross-origin"
+        }
       ]
+    }
+  ],
+  "crons": [
+    {
+      "path": "/api/fca-daily-close",
+      "schedule": "59 2 * * 2-6"
     }
   ]
 }

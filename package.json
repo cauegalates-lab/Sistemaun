@@ -1,6 +1,9 @@
 {
   "name": "painel-comercial-unifahe",
-  "version": "22.0.0",
+  "version": "34.0.0",
   "private": true,
-  "type": "module"
+  "type": "module",
+  "dependencies": {
+    "firebase-admin": "^13.4.0"
+  }
 }

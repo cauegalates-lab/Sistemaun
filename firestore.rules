@@ -66,5 +66,22 @@ service cloud.firestore {
       );
       allow delete: if isManager();
     }
+
+    match /fca_weekly_goals/{goalId} {
+      allow read: if active() && (isManager() || (isSeller() && resource.data.seller_uid == request.auth.uid));
+      allow create, update, delete: if isManager();
+    }
+
+    match /fca_weekly_performance/{recordId} {
+      allow read: if active() && (isManager() || (isSeller() && resource.data.seller_uid == request.auth.uid));
+      allow create: if isSeller() && request.resource.data.seller_uid == request.auth.uid && request.resource.data.closed == false;
+      allow update: if active() && (
+        isManager() ||
+        (isSeller() && resource.data.seller_uid == request.auth.uid && resource.data.closed == false &&
+          request.resource.data.diff(resource.data).affectedKeys().hasOnly(['tasks','updated_at']))
+      );
+      allow delete: if isManager();
+    }
+
   }
 }

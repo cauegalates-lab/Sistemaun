@@ -5,6 +5,7 @@ import { escapeHTML, formatDateBR, formatDateTimeBR, fileSize, money, parseMoney
 import { SELLER_PROFILES, FCA_BASE_SALARY, FCA_RULES, calculateCommissionSnapshot, calculateCommissionRanking } from './modules/commissions.js';
 import { ProfilePhotoStore, MAX_PROFILE_PHOTO_BYTES } from './modules/profile.js';
 import { FcaRepository } from './modules/fca-repository.js';
+import { WeeklyPerformanceRepository } from './modules/weekly-performance-repository.js';
 import { GoalsRepository } from './modules/goals-repository.js';
 import { loginAccount, logoutAccount, watchSession } from './modules/firebase.js';
 import { PREVIEW_LOGIN_ENABLED, authenticatePreview, previewCredentials } from './modules/runtime.js';
@@ -35,6 +36,9 @@ let activeProfilePhotoUrl = '';
 let activeReceiptPreviewUrl = '';
 let fcaReportsCache = [];
 let fcaActionsCache = [];
+let weeklyPerformanceReportsCache = [];
+let weeklyPerformanceWeekStart = '';
+let weeklyPerformanceSeller = SELLERS[0] || '';
 let sellerDashboardMonth = todayISO().slice(0,7);
 let indicatorsMonth = todayISO().slice(0,7);
 let selectedIndicatorSeller = SELLERS[0] || '';
@@ -167,10 +171,19 @@ function buildMenu(){
   sidebarNav.innerHTML=''; let section='';
   getMenuItems().forEach(item=>{
     if(item.section!==section){ section=item.section; sidebarNav.insertAdjacentHTML('beforeend',`<div class="nav-section-label">${section}</div>`); }
+    const wrap=document.createElement('div');
+    wrap.className=`nav-item-wrap${item.id==='fca'?' has-submenu':''}`;
     const btn=document.createElement('button');
     btn.className=`nav-item${item.id===currentPage?' active':''}`; btn.dataset.page=item.id;
-    btn.innerHTML=`<span class="nav-icon"><i data-lucide="${item.icon}"></i></span><span class="nav-label">${item.label}</span>`;
-    btn.onclick=()=>{renderPage(item.id);closeMobileMenu();}; sidebarNav.append(btn);
+    btn.innerHTML=`<span class="nav-icon"><i data-lucide="${item.icon}"></i></span><span class="nav-label">${item.label}</span>${item.id==='fca'?'<span class="nav-submenu-caret"><i data-lucide="chevron-right"></i></span>':''}`;
+    btn.onclick=()=>{renderPage(item.id);closeMobileMenu();}; wrap.append(btn);
+    if(item.id==='fca'){
+      const submenu=document.createElement('div'); submenu.className='nav-submenu';
+      submenu.innerHTML=`<button type="button" class="nav-submenu-item" data-page="fca-semanal"><span><i data-lucide="calendar-check-2"></i></span><strong>Painel semanal de performance</strong></button>`;
+      submenu.querySelector('button').onclick=event=>{event.stopPropagation();renderPage('fca-semanal');closeMobileMenu();};
+      wrap.append(submenu);
+    }
+    sidebarNav.append(wrap);
   });
   refreshIcons();
 }
@@ -179,10 +192,12 @@ function renderPage(id){
   closeModal();
   if(currentUser.role==='auditoria' && id!=='vendas') id='vendas';
   currentPage=id;
-  document.querySelectorAll('.nav-item[data-page]').forEach(el=>el.classList.toggle('active',el.dataset.page===id));
+  document.querySelectorAll('.nav-item[data-page]').forEach(el=>el.classList.toggle('active',el.dataset.page===id || (id==='fca-semanal'&&el.dataset.page==='fca')));
+  document.querySelectorAll('.nav-submenu-item[data-page]').forEach(el=>el.classList.toggle('active',el.dataset.page===id));
   if(id==='inicio') return currentUser.role==='gestor'?renderDashboard({mode:'geral'}):renderSellerDashboard();
   if(id==='vendas') return renderSales();
   if(id==='fca') return renderFCA();
+  if(id==='fca-semanal') return renderWeeklyPerformance();
   if(id==='comissoes') return renderCommissions();
   if(id==='indicadores') return currentUser.role==='gestor'?renderIndicators():renderSellerDashboard();
   const [title,desc]=PAGE_COPY[id]||['Módulo','Estrutura pronta para receber conteúdo.'];
@@ -420,13 +435,22 @@ function renderSalesTable(baseRows){
   if(!rows.length){ wrap.innerHTML=`<div class="empty-sales"><i data-lucide="receipt-text"></i><strong>Nenhuma venda encontrada</strong><span>Ajuste os filtros ou faça um novo lançamento.</span></div>`; refreshIcons(); return; }
   wrap.innerHTML=`<table class="sales-table"><thead><tr><th class="audit-col">Auditoria</th><th>Data</th><th>Aluno</th><th>Vendedor</th><th>Pagamento</th><th>Modalidade / curso</th><th>Origem</th><th class="num">Qtd.</th><th class="num">Total</th><th class="receipt-col">Comprovante</th></tr></thead><tbody>${rows.map(saleRowsMarkup).join('')}</tbody></table>`;
 
-  if(currentUser.role!=='auditoria'){
-    wrap.querySelectorAll('[data-sale-main]').forEach(row=>row.addEventListener('click',event=>{
-      const interactiveTarget=event.target.closest('button,a,input,select,textarea,label,[role="button"],.audit-col,.receipt-col');
-      if(interactiveTarget) return;
-      const details=wrap.querySelector(`[data-sale-details="${row.dataset.saleMain}"]`); if(details) details.classList.toggle('is-hidden');
-    }));
-  }
+  wrap.querySelectorAll('[data-sale-main]').forEach(row=>{
+    const details=wrap.querySelector(`[data-sale-details="${row.dataset.saleMain}"]`);
+    if(!details) return;
+    const openDetails=()=>details.classList.remove('is-hidden');
+    const closeDetails=()=>details.classList.add('is-hidden');
+    row.addEventListener('mouseenter',openDetails);
+    row.addEventListener('mouseleave',event=>{
+      if(details.contains(event.relatedTarget)) return;
+      closeDetails();
+    });
+    details.addEventListener('mouseenter',openDetails);
+    details.addEventListener('mouseleave',event=>{
+      if(row.contains(event.relatedTarget)) return;
+      closeDetails();
+    });
+  });
   wrap.querySelectorAll('[data-receipt-sale]').forEach(btn=>btn.addEventListener('click',event=>{
     event.stopPropagation(); openReceiptModal(btn.dataset.receiptSale);
   }));
@@ -729,6 +753,169 @@ function modalEscape(e){ if(e.key==='Escape')closeModal(); }
 function closeModal(){ if(!modalHost)return; releaseReceiptPreviewUrl(); modalHost.innerHTML=''; document.removeEventListener('keydown',modalEscape); }
 
 
+
+const WEEKLY_DAY_LABELS=['Segunda','Terça','Quarta','Quinta','Sexta'];
+function weeklyDatePlus(date,days){const d=new Date(`${date}T12:00:00`);d.setDate(d.getDate()+days);return d.toISOString().slice(0,10);}
+function weeklyStartFromDate(date=todayISO()){const d=new Date(`${date}T12:00:00`);const day=d.getDay()||7;d.setDate(d.getDate()-(day-1));return d.toISOString().slice(0,10);}
+function weeklyEndFromStart(start){return weeklyDatePlus(start,4);}
+function weeklyDates(start){return WEEKLY_DAY_LABELS.map((label,index)=>({label,date:weeklyDatePlus(start,index)}));}
+function weeklyApprovedRevenue(seller,from,to){return salesCache.filter(row=>row.seller_name===seller&&row.audit_status==='ok'&&row.sale_date>=from&&row.sale_date<=to).reduce((sum,row)=>sum+Number(row.total_value||0),0);}
+function weeklyTaskState(record,taskId){return Boolean(record?.tasks?.[taskId]);}
+function weeklyCanEdit(date,record){const now=new Date();return currentUser.role==='vendedor'&&date===todayISO()&&!record?.closed&&!(now.getHours()===23&&now.getMinutes()>=59);}
+function weeklyStatusCell({date,record,task,managerView}){
+  const today=todayISO(),done=weeklyTaskState(record,task.id),editable=weeklyCanEdit(date,record)&&!managerView;
+  if(editable)return `<button type="button" class="weekly-task-toggle ${done?'done':''}" data-weekly-task="${task.id}" data-weekly-date="${date}" aria-label="${escapeHTML(task.label)}"><i data-lucide="${done?'check':'plus'}"></i></button>`;
+  if(date>today)return `<span class="weekly-task-state future"><i data-lucide="minus"></i></span>`;
+  if(record?.closed)return `<span class="weekly-task-state ${done?'done':'missed'}" title="${done?'Realizado':'Não realizado'}"><i data-lucide="${done?'check':'x'}"></i></span>`;
+  return `<span class="weekly-task-state pending"><i data-lucide="clock-3"></i></span>`;
+}
+function weeklyRecordForDate(records,date){return records.find(row=>row.date===date)||null;}
+function weeklySoldForDay(seller,date,record){return record?.closed?Number(record.sold_today||0):weeklyApprovedRevenue(seller,date,date);}
+function weeklyCumulative(seller,weekStart,date,record){return record?.closed?Number(record.cumulative_sold||0):weeklyApprovedRevenue(seller,weekStart,date);}
+function weeklySellerFocusData(seller,weekStart,goal){
+  const today=todayISO(),days=weeklyDates(weekStart),weekEnd=weeklyEndFromStart(weekStart),target=Math.max(Number(goal.weekly_target||0),0);
+  const todayIndex=days.findIndex(day=>day.date===today);
+  const isCurrentWeek=today>=weekStart&&today<=weekEnd;
+  const effectiveTo=today<weekStart?weekStart:(today>weekEnd?weekEnd:today);
+  const weekRevenue=today<weekStart?0:weeklyApprovedRevenue(seller,weekStart,effectiveTo);
+  const todayRevenue=isCurrentWeek?weeklyApprovedRevenue(seller,today,today):0;
+  const beforeToday=isCurrentWeek&&todayIndex>0?weeklyApprovedRevenue(seller,weekStart,weeklyDatePlus(today,-1)):0;
+  const expectedThroughToday=target&&todayIndex>=0?target*((todayIndex+1)/5):0;
+  const todayTarget=target&&todayIndex>=0?Math.max(expectedThroughToday-beforeToday,0):0;
+  const todayRemaining=Math.max(todayTarget-todayRevenue,0);
+  const weekRemaining=Math.max(target-weekRevenue,0);
+  const pct=target?Math.min((weekRevenue/target)*100,100):0;
+  const paceGap=target&&todayIndex>=0?weekRevenue-expectedThroughToday:0;
+  const status=!target?'waiting':!isCurrentWeek?'neutral':paceGap>=0?'ahead':'behind';
+  return {today,days,weekEnd,target,todayIndex,isCurrentWeek,weekRevenue,todayRevenue,beforeToday,expectedThroughToday,todayTarget,todayRemaining,weekRemaining,pct,paceGap,status};
+}
+function weeklySellerGuidance(seller,focus,monthlyData){
+  if(!focus.target) return {cls:'neutral',title:'Aguardando a meta semanal do gestor.',detail:'Quando a meta for definida, o painel calcula automaticamente o ritmo necessário para o dia.'};
+  if(!focus.isCurrentWeek) return {cls:'neutral',title:'Semana selecionada para consulta.',detail:'Volte para a semana atual para receber a orientação diária de ritmo.'};
+  const parts=[];
+  if(focus.todayRemaining>0) parts.push(`R$ ${money.format(focus.todayRemaining).replace('R$ ','').replace('R$ ','')} em faturamento`);
+  const boletoNeed=Number(monthlyData?.boleto?.dailyNeed||0);
+  const enrollNeed=Number(monthlyData?.enroll?.dailyNeed||0);
+  if(boletoNeed>0) parts.push(`${Math.max(1,Math.ceil(boletoNeed))} boleto${Math.ceil(boletoNeed)>1?'s':''}`);
+  if(enrollNeed>0) parts.push(`${Math.max(1,Math.ceil(enrollNeed))} matrícula${Math.ceil(enrollNeed)>1?'s':''}`);
+  let title='Seu ritmo de hoje está em dia.';
+  let detail='Mantenha a cadência comercial e conclua as tarefas previstas para fechar o dia completo.';
+  let cls='ahead';
+  if(parts.length){
+    cls='behind';
+    title=`Hoje, seu foco é ${parts.join(' + ')}.`;
+    if(boletoNeed>=1) detail='Sua meta mensal indica necessidade de reforçar boleto hoje. Priorize essa forma de pagamento quando fizer sentido na negociação e mantenha o faturamento no ritmo semanal.';
+    else if(focus.todayRemaining>0) detail='Concentre as próximas oportunidades no faturamento que falta e complete as tarefas do dia para voltar à média semanal.';
+    else detail='O faturamento semanal está no ritmo; use o restante do dia para aproximar as metas mensais e concluir a rotina comercial.';
+  }
+  return {cls,title,detail};
+}
+
+function weeklySellerBoardMarkup({seller,weekStart,goal,records,monthlyData=null}){
+  const tasks=WeeklyPerformanceRepository.tasks||[],days=weeklyDates(weekStart),focus=weeklySellerFocusData(seller,weekStart,goal),today=todayISO();
+  const todayRecord=weeklyRecordForDate(records,today),doneToday=tasks.filter(task=>weeklyTaskState(todayRecord,task.id)).length;
+  const targetLabel=focus.target?money.format(focus.target):'Aguardando definição';
+  const guidance=weeklySellerGuidance(seller,focus,monthlyData);
+  const paceText=!focus.target?'O gestor ainda não definiu sua meta semanal.':!focus.isCurrentWeek?'Acompanhe os resultados da semana selecionada.':focus.status==='ahead'?'Você está no ritmo ou acima da média da semana.':'Você está abaixo do ritmo esperado da semana.';
+  const dailyText=!focus.target?'—':!focus.isCurrentWeek?'—':focus.todayRemaining<=0?'Ritmo de hoje atingido':money.format(focus.todayRemaining);
+  return `<section class="weekly-seller-overview">
+    <div class="weekly-seller-overview-main"><span class="section-kicker">SEU DESAFIO DA SEMANA</span><h3>${escapeHTML(goal.indicator||'Faturamento semanal')}</h3><p>${paceText}</p></div>
+    <div class="weekly-seller-overview-metrics">
+      <div><span>Meta semanal</span><strong>${targetLabel}</strong></div>
+      <div><span>Faturado na semana</span><strong>${money.format(focus.weekRevenue)}</strong></div>
+      <div><span>Quanto falta</span><strong>${focus.target?money.format(focus.weekRemaining):'—'}</strong></div>
+      <div><span>Atingimento</span><strong>${focus.target?focus.pct.toFixed(1).replace('.',',')+'%':'—'}</strong></div>
+    </div>
+    <div class="weekly-seller-progress"><span style="width:${focus.pct}%"></span></div>
+  </section>
+
+  <section class="weekly-today-focus ${focus.status}">
+    <div class="weekly-today-focus-icon"><i data-lucide="target"></i></div>
+    <div class="weekly-today-focus-copy"><span>FOCO DE HOJE</span><h3>${focus.isCurrentWeek&&focus.target?`Para ficar na média hoje, faltam ${dailyText}.`:'Acompanhe sua rotina comercial.'}</h3><p>${focus.isCurrentWeek&&focus.target?`Você já faturou ${money.format(focus.todayRevenue)} hoje. Complete também as tarefas do dia para fechar a rotina.`:'As atividades ficam disponíveis no dia correspondente e o faturamento considera somente vendas OK.'}</p></div>
+    <div class="weekly-today-focus-values">
+      <div><span>Meta ajustada de hoje</span><strong>${focus.isCurrentWeek&&focus.target?money.format(focus.todayTarget):'—'}</strong></div>
+      <div><span>Já feito hoje</span><strong>${focus.isCurrentWeek?money.format(focus.todayRevenue):'—'}</strong></div>
+      <div><span>Tarefas de hoje</span><strong>${focus.isCurrentWeek?`${doneToday}/${tasks.length}`:'—'}</strong></div>
+    </div>
+  </section>
+
+  <div class="weekly-guidance-line ${guidance.cls}"><span class="weekly-guidance-icon"><i data-lucide="sparkles"></i></span><div><strong>${guidance.title}</strong><p>${guidance.detail}</p></div></div>
+
+  <section class="weekly-integrated-section">
+    <div class="weekly-integrated-heading"><div><span class="section-kicker">ROTINA DIÁRIA</span><h3>Tarefas da semana</h3></div><p>Marque os checkzinhos no dia atual. Após 23:59, o resultado do dia é registrado.</p></div>
+    <div class="weekly-task-table weekly-task-table-integrated"><div class="weekly-task-row header"><strong>INDICADORES / TAREFAS</strong>${days.map(day=>`<span class="${day.date===today?'current-day':''}">${day.label.slice(0,3).toUpperCase()}</span>`).join('')}</div>${tasks.map(task=>`<div class="weekly-task-row"><strong>${escapeHTML(task.label)}</strong>${days.map(day=>`<span class="weekly-task-cell ${day.date===today?'current-day':''}">${weeklyStatusCell({date:day.date,record:weeklyRecordForDate(records,day.date),task,managerView:false})}</span>`).join('')}</div>`).join('')}</div>
+  </section>
+
+  <section class="weekly-integrated-section weekly-challenge-integrated">
+    <div class="weekly-integrated-heading"><div><span class="section-kicker">ACOMPANHAMENTO</span><h3>Faturamento da semana</h3></div><p>Vendido no dia, meta semanal e saldo restante em uma única leitura.</p></div>
+    <div class="weekly-challenge-title">CONTROLE DO DESAFIO SEMANAL</div>
+    <div class="weekly-challenge-table"><div class="weekly-challenge-row header"><strong>DIA</strong><span>VENDIDO NO DIA</span><span>META SEMANAL</span><span>QUANTO FALTA</span></div>${days.map(day=>{const record=weeklyRecordForDate(records,day.date),sold=weeklySoldForDay(seller,day.date,record),cumulative=weeklyCumulative(seller,weekStart,day.date,record),remaining=Math.max(Number(goal.weekly_target||0)-cumulative,0);return `<div class="weekly-challenge-row ${day.date===today?'today':''}"><strong>${day.label}</strong><span>${money.format(sold)}</span><span>${goal.weekly_target?money.format(goal.weekly_target):'—'}</span><span>${goal.weekly_target?money.format(remaining):'—'}</span></div>`;}).join('')}<div class="weekly-challenge-row total"><strong>TOTAL</strong><span>${money.format(focus.weekRevenue)}</span><span>${goal.weekly_target?money.format(goal.weekly_target):'—'}</span><span>${goal.weekly_target?money.format(focus.weekRemaining):'—'}</span></div></div>
+    <div class="weekly-performance-foot weekly-performance-foot-integrated"><span><i data-lucide="shield-check"></i>Somente vendas OK alimentam o faturamento.</span><span><i data-lucide="clock-3"></i>Fechamento diário automático às 23:59.</span></div>
+  </section>`;
+}
+
+function weeklyBoardMarkup({seller,weekStart,goal,records,managerView=false}){
+  const days=weeklyDates(weekStart),tasks=WeeklyPerformanceRepository.tasks||[],today=todayISO();
+  const weekRevenue=weeklyApprovedRevenue(seller,weekStart,weeklyEndFromStart(weekStart));
+  const remaining=goal.weekly_target?Math.max(Number(goal.weekly_target)-weekRevenue,0):0;
+  const pct=goal.weekly_target?Math.min((weekRevenue/Number(goal.weekly_target))*100,100):0;
+  return `<section class="weekly-manager-board-integrated">
+    <div class="weekly-performance-identity weekly-performance-identity-integrated"><div><span>VENDEDOR(A)</span><strong>${escapeHTML(seller)}</strong></div><div><span>INDICADOR</span><strong>${escapeHTML(goal.indicator||'Faturamento semanal')}</strong></div><div><span>META SEMANAL</span><strong>${goal.weekly_target?money.format(goal.weekly_target):'Não definida'}</strong></div><div><span>FATURADO</span><strong>${money.format(weekRevenue)}</strong></div><div><span>QUANTO FALTA</span><strong>${goal.weekly_target?money.format(remaining):'—'}</strong></div></div>
+    <div class="weekly-manager-progress"><span style="width:${pct}%"></span></div>
+    <section class="weekly-integrated-section weekly-manager-integrated-section"><div class="weekly-integrated-heading"><div><span class="section-kicker">ROTINA DIÁRIA</span><h3>Tarefas da semana</h3></div><p>Visualização geral do que foi concluído, ficou pendente ou ainda está por acontecer.</p></div><div class="weekly-task-table weekly-task-table-integrated"><div class="weekly-task-row header"><strong>INDICADORES / TAREFAS</strong>${days.map(day=>`<span class="${day.date===today?'current-day':''}">${day.label.slice(0,3).toUpperCase()}</span>`).join('')}</div>${tasks.map(task=>`<div class="weekly-task-row"><strong>${escapeHTML(task.label)}</strong>${days.map(day=>`<span class="weekly-task-cell ${day.date===today?'current-day':''}">${weeklyStatusCell({date:day.date,record:weeklyRecordForDate(records,day.date),task,managerView})}</span>`).join('')}</div>`).join('')}</div></section>
+    <section class="weekly-integrated-section weekly-challenge-integrated weekly-manager-integrated-section"><div class="weekly-integrated-heading"><div><span class="section-kicker">ACOMPANHAMENTO</span><h3>Faturamento da semana</h3></div><p>O vendido considera somente vendas aprovadas pela auditoria.</p></div><div class="weekly-challenge-title">CONTROLE DO DESAFIO SEMANAL</div><div class="weekly-challenge-table"><div class="weekly-challenge-row header"><strong>DIA</strong><span>VENDIDO NO DIA</span><span>META SEMANAL</span><span>QUANTO FALTA</span></div>${days.map(day=>{const record=weeklyRecordForDate(records,day.date),sold=weeklySoldForDay(seller,day.date,record),cumulative=weeklyCumulative(seller,weekStart,day.date,record),dayRemaining=Math.max(Number(goal.weekly_target||0)-cumulative,0);return `<div class="weekly-challenge-row ${day.date===today?'today':''}"><strong>${day.label}</strong><span>${money.format(sold)}</span><span>${goal.weekly_target?money.format(goal.weekly_target):'—'}</span><span>${goal.weekly_target?money.format(dayRemaining):'—'}</span></div>`;}).join('')}<div class="weekly-challenge-row total"><strong>TOTAL</strong><span>${money.format(weekRevenue)}</span><span>${goal.weekly_target?money.format(goal.weekly_target):'—'}</span><span>${goal.weekly_target?money.format(remaining):'—'}</span></div></div><div class="weekly-performance-foot weekly-performance-foot-integrated"><span><i data-lucide="shield-check"></i>Somente vendas OK alimentam o faturamento.</span><span><i data-lucide="clock-3"></i>Fechamento diário automático às 23:59.</span></div></section>
+  </section>`;
+}
+function weeklyClosedReportCard(record){
+  const tasks=WeeklyPerformanceRepository.tasks||[],done=tasks.filter(task=>weeklyTaskState(record,task.id)).length,missed=tasks.length-done;
+  return `<button type="button" class="weekly-report-card" data-weekly-report="${record.id}"><span class="weekly-report-date"><strong class="weekly-report-seller">${escapeHTML(record.seller_name)}</strong><small>${formatDateBR(record.date)}</small></span><span class="weekly-report-task ok"><strong>${done}/${tasks.length}</strong><small>tarefas feitas</small></span><span class="weekly-report-task ${missed?'missed':'ok'}"><strong>${missed}</strong><small>não feitas</small></span><span><strong>${money.format(record.sold_today)}</strong><small>vendido no dia</small></span><span><strong>${record.weekly_target?money.format(record.remaining):'—'}</strong><small>quanto faltava</small></span><i data-lucide="chevron-right"></i></button>`;
+}
+function openWeeklyClosedReport(record){
+  const tasks=WeeklyPerformanceRepository.tasks||[];
+  openModal(`<div class="mini-modal weekly-report-modal"><div class="modal-head"><div><span class="section-kicker">FECHAMENTO AUTOMÁTICO</span><h3>${escapeHTML(record.seller_name)}</h3><p>${formatDateBR(record.date)} • encerrado ${record.closed_at?formatDateTimeBR(record.closed_at):'às 23:59'}</p></div><button class="modal-close" data-close-modal><i data-lucide="x"></i></button></div><div class="weekly-report-summary"><div><span>Vendido</span><strong>${money.format(record.sold_today)}</strong></div><div><span>Acumulado semanal</span><strong>${money.format(record.cumulative_sold)}</strong></div><div><span>Meta semanal</span><strong>${record.weekly_target?money.format(record.weekly_target):'—'}</strong></div><div><span>Quanto faltava</span><strong>${record.weekly_target?money.format(record.remaining):'—'}</strong></div></div><div class="weekly-report-task-list">${tasks.map(task=>`<div class="${weeklyTaskState(record,task.id)?'done':'missed'}"><span><i data-lucide="${weeklyTaskState(record,task.id)?'check':'x'}"></i></span><strong>${escapeHTML(task.label)}</strong><small>${weeklyTaskState(record,task.id)?'Realizado':'Não realizado'}</small></div>`).join('')}</div></div>`);refreshIcons();
+}
+
+async function renderWeeklyPerformance(){
+  destroyCharts();
+  if(!weeklyPerformanceWeekStart)weeklyPerformanceWeekStart=weeklyStartFromDate(todayISO());
+  if(currentUser.role==='vendedor')weeklyPerformanceSeller=currentUser.name;
+  content.innerHTML=`<section class="fca-loading"><i data-lucide="loader-circle" class="spin"></i><strong>Carregando painel semanal</strong></section>`;refreshIcons();
+  try{
+    if(PREVIEW_LOGIN_ENABLED)await WeeklyPerformanceRepository.finalizeOverdue({sales:salesCache,sellers:SELLERS,today:todayISO()});
+    const [goal,records]=await Promise.all([WeeklyPerformanceRepository.getGoal(weeklyPerformanceSeller,weeklyPerformanceWeekStart),WeeklyPerformanceRepository.getWeekRecords(weeklyPerformanceSeller,weeklyPerformanceWeekStart)]);
+    if(currentPage!=='fca-semanal')return;
+    if(currentUser.role==='gestor')renderManagerWeeklyPerformance(goal,records);
+    else {
+      const monthKey=(todayISO()>=weeklyPerformanceWeekStart&&todayISO()<=weeklyEndFromStart(weeklyPerformanceWeekStart)?todayISO():weeklyPerformanceWeekStart).slice(0,7);
+      const monthlyGoals=await GoalsRepository.getForSeller(currentUser.name,monthKey);
+      const monthlyData=calculateSellerDashboard(salesCache,{month:monthKey,seller:currentUser.name,goals:monthlyGoals,referenceDate:todayISO()});
+      renderSellerWeeklyPerformance(goal,records,monthlyData);
+    }
+  }catch(error){content.innerHTML=`<section class="fca-loading"><i data-lucide="circle-alert"></i><strong>${escapeHTML(error.message||'Não foi possível carregar o painel semanal.')}</strong></section>`;refreshIcons();}
+}
+function renderSellerWeeklyPerformance(goal,records,monthlyData=null){
+  content.innerHTML=`<section class="weekly-head weekly-seller-head"><div><span class="eyebrow">FCA • ROTINA COMERCIAL</span><h2>Painel semanal de performance</h2><p>Sua meta, suas tarefas do dia e o faturamento da semana em uma única visão.</p></div><div class="weekly-week-actions"><button type="button" class="toolbar-action" id="weeklyPrev"><i data-lucide="chevron-left"></i></button><div><span>SEMANA</span><strong>${formatDateBR(weeklyPerformanceWeekStart)} – ${formatDateBR(weeklyEndFromStart(weeklyPerformanceWeekStart))}</strong></div><button type="button" class="toolbar-action" id="weeklyNext"><i data-lucide="chevron-right"></i></button></div></section>${weeklySellerBoardMarkup({seller:currentUser.name,weekStart:weeklyPerformanceWeekStart,goal,records,monthlyData})}`;
+  bindWeeklyBoard(records);bindWeeklyNavigation();refreshIcons();
+}
+function renderManagerWeeklyPerformance(goal,records){
+  content.innerHTML=`<section class="weekly-head"><div><span class="eyebrow">FCA • GESTÃO DE PERFORMANCE</span><h2>Painel semanal de performance</h2><p>Defina manualmente a meta semanal e acompanhe o que cada vendedor realizou em cada dia.</p></div><button type="button" class="secondary-action" id="backToFca"><i data-lucide="arrow-left"></i>FCA do gestor</button></section><section class="weekly-manager-controls"><label><span>VENDEDOR</span><select id="weeklySeller">${SELLERS.map(name=>`<option ${name===weeklyPerformanceSeller?'selected':''}>${name}</option>`).join('')}</select></label><label><span>INÍCIO DA SEMANA</span><input id="weeklyWeekStart" type="date" value="${weeklyPerformanceWeekStart}"></label><form id="weeklyGoalForm"><label><span>INDICADOR</span><input name="indicator" value="${escapeHTML(goal.indicator||'Faturamento semanal')}" placeholder="Faturamento semanal"></label><label><span>META SEMANAL</span><input name="weekly_target" inputmode="decimal" value="${goal.weekly_target||''}" placeholder="R$ 0,00"></label><button class="primary-action" type="submit"><i data-lucide="save"></i>Salvar meta</button></form></section>${weeklyBoardMarkup({seller:weeklyPerformanceSeller,weekStart:weeklyPerformanceWeekStart,goal,records,managerView:true})}`;
+  $('#backToFca').onclick=()=>renderPage('fca');
+  $('#weeklySeller').onchange=e=>{weeklyPerformanceSeller=e.target.value;renderWeeklyPerformance();};
+  $('#weeklyWeekStart').onchange=e=>{weeklyPerformanceWeekStart=weeklyStartFromDate(e.target.value||todayISO());renderWeeklyPerformance();};
+  $('#weeklyGoalForm').onsubmit=async e=>{e.preventDefault();const form=e.currentTarget,fd=new FormData(form),button=form.querySelector('button[type=submit]');button.disabled=true;try{await WeeklyPerformanceRepository.saveGoal({seller_name:weeklyPerformanceSeller,week_start:weeklyPerformanceWeekStart,indicator:String(fd.get('indicator')||'').trim(),weekly_target:parseMoney(fd.get('weekly_target')),updated_by:currentUser.name});toast(`Meta semanal de ${weeklyPerformanceSeller} salva.`);renderWeeklyPerformance();}catch(error){button.disabled=false;toast(error.message||'Não foi possível salvar a meta.','error');}};
+  refreshIcons();
+}
+function bindWeeklyNavigation(){
+  $('#weeklyPrev').onclick=()=>{weeklyPerformanceWeekStart=weeklyDatePlus(weeklyPerformanceWeekStart,-7);renderWeeklyPerformance();};
+  $('#weeklyNext').onclick=()=>{weeklyPerformanceWeekStart=weeklyDatePlus(weeklyPerformanceWeekStart,7);renderWeeklyPerformance();};
+}
+function bindWeeklyBoard(records){
+  content.querySelectorAll('[data-weekly-task]').forEach(button=>button.onclick=async()=>{
+    const date=button.dataset.weeklyDate,taskId=button.dataset.weeklyTask,record=weeklyRecordForDate(records,date),next=!weeklyTaskState(record,taskId);button.disabled=true;
+    try{await WeeklyPerformanceRepository.saveTasks({seller_name:currentUser.name,date,week_start:weeklyPerformanceWeekStart,tasks:{[taskId]:next}});renderWeeklyPerformance();}catch(error){button.disabled=false;toast(error.message||'Não foi possível atualizar a tarefa.','error');}
+  });
+}
+
 function fcaPeriodRange(type='weekly'){
   const today=todayISO();
   if(type==='monthly') return {from:`${today.slice(0,7)}-01`,to:today};
@@ -739,7 +926,7 @@ function fcaPeriodRange(type='weekly'){
   return {from:new Date(now-offset).toISOString().slice(0,10),to:today};
 }
 function fcaSnapshot(seller,from,to){
-  const rows=salesCache.filter(row=>row.seller_name===seller && row.sale_date>=from && row.sale_date<=to && row.audit_status!=='not_ok');
+  const rows=salesCache.filter(row=>row.seller_name===seller && row.sale_date>=from && row.sale_date<=to && row.audit_status==='ok');
   return {
     revenue:rows.reduce((sum,row)=>sum+Number(row.total_value||0),0),
     sales_count:rows.length,
@@ -787,12 +974,25 @@ async function renderFCA(){
   if(currentUser.role==='auditoria') return renderSales();
   destroyCharts();
   content.innerHTML=`<section class="fca-loading"><i data-lucide="loader-circle" class="spin"></i><strong>Carregando FCA</strong></section>`; refreshIcons();
-  [fcaReportsCache,fcaActionsCache]=await Promise.all([FcaRepository.listReports(),FcaRepository.listActions()]);
+  if(PREVIEW_LOGIN_ENABLED) await WeeklyPerformanceRepository.finalizeOverdue({sales:salesCache,sellers:SELLERS,today:todayISO()});
+  if(currentUser.role==='gestor') [fcaReportsCache,fcaActionsCache,weeklyPerformanceReportsCache]=await Promise.all([FcaRepository.listReports(),FcaRepository.listActions(),WeeklyPerformanceRepository.listClosedReports()]);
+  else [fcaReportsCache,fcaActionsCache]=await Promise.all([FcaRepository.listReports(),FcaRepository.listActions()]);
   if(currentPage!=='fca') return;
-  if(currentUser.role==='gestor') renderManagerFCA(); else renderSellerFCA();
+  if(currentUser.role==='gestor') renderManagerFCA();
+  else {
+    if(!weeklyPerformanceWeekStart)weeklyPerformanceWeekStart=weeklyStartFromDate(todayISO());
+    weeklyPerformanceSeller=currentUser.name;
+    const [weeklyGoal,weeklyRecords,monthlyGoals]=await Promise.all([
+      WeeklyPerformanceRepository.getGoal(currentUser.name,weeklyPerformanceWeekStart),
+      WeeklyPerformanceRepository.getWeekRecords(currentUser.name,weeklyPerformanceWeekStart),
+      GoalsRepository.getForSeller(currentUser.name,todayISO().slice(0,7))
+    ]);
+    const monthlyData=calculateSellerDashboard(salesCache,{month:todayISO().slice(0,7),seller:currentUser.name,goals:monthlyGoals,referenceDate:todayISO()});
+    if(currentPage==='fca')renderSellerFCA(weeklyGoal,weeklyRecords,monthlyData);
+  }
 }
 
-function renderSellerFCA(){
+function renderSellerFCA(weeklyGoal=null,weeklyRecords=[],monthlyData=null){
   const reports=fcaReportsCache.filter(item=>item.seller_name===currentUser.name).sort((a,b)=>String(b.created_at).localeCompare(String(a.created_at)));
   const actions=fcaActionsCache.filter(item=>item.seller_name===currentUser.name).sort((a,b)=>String(b.created_at).localeCompare(String(a.created_at)));
   const feedbackCount=reports.filter(item=>item.status==='feedback_requested').length;
@@ -802,6 +1002,7 @@ function renderSellerFCA(){
     <div><span class="eyebrow">ACOMPANHAMENTO COMERCIAL</span><h2>FCA</h2><p>Registre o que aconteceu no período, o motivo e o próximo passo para o gestor acompanhar.</p></div>
     <div class="fca-head-summary"><div><span>Relatórios</span><strong>${reports.length}</strong></div><div><span>Feedbacks</span><strong>${feedbackCount}</strong></div><div><span>Ações abertas</span><strong>${openActions}</strong></div><button id="toggleFcaReport" class="primary-action"><i data-lucide="plus"></i>Novo relatório</button></div>
   </section>
+  <section class="seller-fca-weekly-shell"><div class="seller-fca-weekly-head"><div><span class="section-kicker">PAINEL RECEBIDO DO GESTOR</span><h3>Sua performance desta semana</h3></div><div class="weekly-week-actions seller-fca-week-actions"><button type="button" class="toolbar-action" id="weeklyFcaPrev"><i data-lucide="chevron-left"></i></button><div><span>SEMANA</span><strong>${formatDateBR(weeklyPerformanceWeekStart)} – ${formatDateBR(weeklyEndFromStart(weeklyPerformanceWeekStart))}</strong></div><button type="button" class="toolbar-action" id="weeklyFcaNext"><i data-lucide="chevron-right"></i></button></div></div>${weeklySellerBoardMarkup({seller:currentUser.name,weekStart:weeklyPerformanceWeekStart,goal:weeklyGoal||{},records:weeklyRecords||[],monthlyData})}</section>
   <section id="fcaReportPanel" class="fca-entry-panel is-collapsed"></section>
   <section class="fca-grid">
     <div class="fca-column"><div class="fca-section-title"><div><span class="section-kicker">HISTÓRICO</span><h3>Meus relatórios</h3></div><span>${reports.length}</span></div><div class="fca-report-list">${reports.length?reports.map(r=>fcaReportCard(r)).join(''):'<div class="fca-empty">Nenhum relatório enviado ainda.</div>'}</div></div>
@@ -812,6 +1013,12 @@ function renderSellerFCA(){
     if(!panel.dataset.ready) mountFcaReportForm(panel,range);
     $('#toggleFcaReport').innerHTML=panel.classList.contains('is-collapsed')?'<i data-lucide="plus"></i>Novo relatório':'<i data-lucide="x"></i>Fechar'; refreshIcons();
   };
+  content.querySelectorAll('[data-weekly-task]').forEach(button=>button.onclick=async()=>{
+    const date=button.dataset.weeklyDate,taskId=button.dataset.weeklyTask,record=weeklyRecordForDate(weeklyRecords,date),next=!weeklyTaskState(record,taskId);button.disabled=true;
+    try{await WeeklyPerformanceRepository.saveTasks({seller_name:currentUser.name,date,week_start:weeklyPerformanceWeekStart,tasks:{[taskId]:next}});renderFCA();}catch(error){button.disabled=false;toast(error.message||'Não foi possível atualizar a tarefa.','error');}
+  });
+  $('#weeklyFcaPrev')?.addEventListener('click',()=>{weeklyPerformanceWeekStart=weeklyDatePlus(weeklyPerformanceWeekStart,-7);renderFCA();});
+  $('#weeklyFcaNext')?.addEventListener('click',()=>{weeklyPerformanceWeekStart=weeklyDatePlus(weeklyPerformanceWeekStart,7);renderFCA();});
   content.querySelectorAll('[data-fca-report]').forEach(btn=>btn.onclick=()=>openSellerFcaReport(btn.dataset.fcaReport));
   content.querySelectorAll('[data-complete-fca-action]').forEach(btn=>btn.onclick=async()=>{
     btn.disabled=true;
@@ -861,12 +1068,15 @@ function renderManagerFCA(){
   const actions=[...fcaActionsCache].sort((a,b)=>String(b.created_at).localeCompare(String(a.created_at)));
   const feedbackPending=reports.filter(item=>item.status==='feedback_requested').length;
   const openActions=actions.filter(item=>item.status==='open').length;
-  content.innerHTML=`<section class="fca-head manager-fca-head"><div><span class="eyebrow">GESTÃO DE DESEMPENHO</span><h2>FCA</h2><p>Relatórios dos vendedores, solicitações de feedback e ações de acompanhamento.</p></div><div class="fca-head-summary"><div><span>Recebidos</span><strong>${reports.length}</strong></div><div><span>Feedback aguardando</span><strong>${feedbackPending}</strong></div><div><span>Ações abertas</span><strong>${openActions}</strong></div></div></section>
+  content.innerHTML=`<section class="fca-head manager-fca-head"><div><span class="eyebrow">GESTÃO DE DESEMPENHO</span><h2>FCA</h2><p>Relatórios dos vendedores, fechamento diário de performance e ações de acompanhamento.</p></div><div class="fca-head-summary"><div><span>Recebidos</span><strong>${reports.length}</strong></div><div><span>Fechamentos diários</span><strong>${weeklyPerformanceReportsCache.length}</strong></div><div><span>Ações abertas</span><strong>${openActions}</strong></div><button type="button" class="primary-action" id="openWeeklyPanel"><i data-lucide="calendar-check-2"></i>Painel semanal</button></div></section>
+  <section class="weekly-manager-report-section"><div class="fca-section-title"><div><span class="section-kicker">FECHAMENTO AUTOMÁTICO • 23:59</span><h3>Relatório diário de performance</h3></div><span>${weeklyPerformanceReportsCache.length} registros</span></div><div class="weekly-report-list">${weeklyPerformanceReportsCache.length?weeklyPerformanceReportsCache.slice(0,20).map(weeklyClosedReportCard).join(''):'<div class="fca-empty">Nenhum dia encerrado automaticamente ainda.</div>'}</div></section>
   <section class="fca-grid manager-fca-grid">
     <div class="fca-column"><div class="fca-section-title"><div><span class="section-kicker">RECEBIMENTO</span><h3>Relatórios dos vendedores</h3></div><span>${reports.length}</span></div><div class="fca-report-list">${reports.length?reports.map(r=>fcaReportCard(r,true)).join(''):'<div class="fca-empty">Nenhum relatório recebido.</div>'}</div></div>
     <div class="fca-column"><div class="fca-section-title"><div><span class="section-kicker">ACOMPANHAMENTO</span><h3>Ações enviadas</h3></div><span>${openActions} abertas</span></div><div class="fca-action-list">${actions.length?actions.map(a=>fcaActionCard(a,true)).join(''):'<div class="fca-empty">Nenhuma ação criada.</div>'}</div></div>
   </section>`;
+  $('#openWeeklyPanel').onclick=()=>renderPage('fca-semanal');
   content.querySelectorAll('[data-fca-report]').forEach(btn=>btn.onclick=()=>openManagerFcaReport(btn.dataset.fcaReport));
+  content.querySelectorAll('[data-weekly-report]').forEach(btn=>{const record=weeklyPerformanceReportsCache.find(item=>item.id===btn.dataset.weeklyReport);btn.onclick=()=>record&&openWeeklyClosedReport(record);});
   refreshIcons();
 }
 
@@ -1249,6 +1459,7 @@ async function renderSellerDashboard({sellerName="",managerView=false,showNaviga
         </div>
       </section>
 
+      <div class="seller-dashboard-summary-grid">
       <section class="seller-hero-card seller-hero-card-expanded ${paceClass}">
         <div class="seller-hero-main">
           <div class="seller-hero-copy">
@@ -1278,6 +1489,7 @@ async function renderSellerDashboard({sellerName="",managerView=false,showNaviga
           <div><span>Vendas</span><strong>${data.today.sales}</strong></div>
         </div>
       </section>
+      </div>
 
       <section class="seller-goal-card-section">
         <div class="seller-goals-heading"><div><span class="section-kicker">METAS DO VENDEDOR</span><h3>O que falta para fechar o mês</h3></div><span>Gap = diferença entre o realizado e o ritmo esperado até hoje.</span></div>
