@@ -46,7 +46,7 @@ let selectedIndicatorSeller = SELLERS[0] || '';
 
 const $ = s => document.querySelector(s);
 const loginView=$('#loginView'), appView=$('#appView'), loginForm=$('#loginForm'), loginError=$('#loginError');
-const emailInput=$('#email'), passwordInput=$('#password'), loginIdentity=$('#loginIdentity'), loginIdentityAvatar=$('#loginIdentityAvatar'), loginIdentityName=$('#loginIdentityName'), loginIdentityMeta=$('#loginIdentityMeta'), loginPasswordStep=$('#loginPasswordStep'), sidebar=$('#sidebar'), sidebarNav=$('#sidebarNav');
+const emailInput=$('#email'), passwordInput=$('#password'), loginIdentity=$('#loginIdentity'), loginIdentityAvatar=$('#loginIdentityAvatar'), loginIdentityName=$('#loginIdentityName'), loginIdentityMeta=$('#loginIdentityMeta'), loginPasswordStep=$('#loginPasswordStep'), changeLoginUser=$('#changeLoginUser'), sidebar=$('#sidebar'), sidebarNav=$('#sidebarNav');
 const content=$('#content'), userName=$('#userName'), userRole=$('#userRole'), userAvatar=$('#userAvatar');
 const mobileOverlay=$('#mobileOverlay'), modalHost=$('#modalHost');
 const profileTrigger=$('#profileTrigger'), profileDrawer=$('#profileDrawer'), profileOverlay=$('#profileOverlay'), profileCloseButton=$('#profileCloseButton');
@@ -95,12 +95,17 @@ function clearLoginIdentityPhoto(){
 function hideLoginProgressiveStep({clearPassword=false}={}){
   clearTimeout(loginRevealTimer);
   clearLoginIdentityPhoto();
-  loginIdentity.hidden=true;
   loginPasswordStep.hidden=true;
   passwordInput.disabled=true;
-  loginIdentity.classList.remove('is-visible');
+  loginIdentity.classList.remove('is-visible','is-identified');
+  loginIdentity.classList.add('is-placeholder');
+  loginForm.classList.remove('identity-ready');
+  loginIdentityAvatar.innerHTML='<i data-lucide="user-round"></i>';
+  loginIdentityName.textContent='Digite seu usuário';
+  loginIdentityMeta.textContent='Sua foto aparecerá aqui';
   loginPasswordStep.classList.remove('is-visible');
   if(clearPassword) passwordInput.value='';
+  refreshIcons();
 }
 async function loadLoginIdentityPhoto(identity,identifier){
   clearLoginIdentityPhoto();
@@ -121,6 +126,7 @@ async function revealLoginProgressiveStep(){
   const raw=emailInput.value.trim();
   if(raw.length<2){ hideLoginProgressiveStep({clearPassword:true}); return; }
   const identity=PREVIEW_LOGIN_ENABLED ? resolvePreviewIdentity(raw) : null;
+  if(PREVIEW_LOGIN_ENABLED && !identity){ hideLoginProgressiveStep({clearPassword:false}); return; }
   const fallbackName=raw.includes('@')?raw.split('@')[0].replace(/[._-]+/g,' '):raw;
   const displayIdentity=identity||{
     name:fallbackName.replace(/\b\w/g,char=>char.toUpperCase()),
@@ -134,13 +140,16 @@ async function revealLoginProgressiveStep(){
   loginIdentityName.textContent=displayIdentity.name||'Usuário';
   const context=[loginRoleLabel(displayIdentity.role),displayIdentity.team||'',displayIdentity.sector||''].filter(Boolean).join(' · ');
   loginIdentityMeta.textContent=context||'Plataforma Comercial';
-  loginIdentity.hidden=false;
+  loginIdentity.classList.remove('is-placeholder');
+  loginIdentity.classList.add('is-identified');
+  loginForm.classList.add('identity-ready');
   loginPasswordStep.hidden=false;
   passwordInput.disabled=false;
   requestAnimationFrame(()=>{
     loginIdentity.classList.add('is-visible');
     loginPasswordStep.classList.add('is-visible');
     refreshIcons();
+    setTimeout(()=>{ if(loginForm.classList.contains('identity-ready')) passwordInput.focus(); },260);
   });
 }
 function scheduleLoginReveal(){
@@ -246,6 +255,12 @@ document.querySelectorAll('[data-demo]').forEach(button=>button.addEventListener
 
 emailInput.addEventListener('input',scheduleLoginReveal);
 emailInput.addEventListener('blur',()=>{ if(emailInput.value.trim().length>=2) revealLoginProgressiveStep(); });
+changeLoginUser?.addEventListener('click',()=>{
+  emailInput.value='';
+  hideLoginProgressiveStep({clearPassword:true});
+  loginError.textContent='';
+  emailInput.focus();
+});
 
 $('#togglePassword').addEventListener('click',()=>{
   const show=passwordInput.type==='password'; passwordInput.type=show?'text':'password';

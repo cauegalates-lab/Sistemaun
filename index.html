@@ -17,13 +17,21 @@
 <body>
   <div id="loginView" class="login-view">
     <main class="login-shell">
+      <div class="login-brand" aria-label="UNIFAHE Plataforma Comercial">
+        <img src="assets/logo-white.png" alt="UNIFAHE" class="login-logo" />
+        <span>Plataforma Comercial</span>
+      </div>
+
       <section class="login-panel" aria-label="Acesso à Plataforma Comercial">
-        <div class="login-heading">
-          <img src="assets/logo-white.png" alt="UNIFAHE" class="login-logo" />
-          <div class="login-title-copy">
-            <h1>Login</h1>
-            <p>Plataforma Comercial</p>
+        <div id="loginIdentity" class="login-identity-reveal is-placeholder" aria-live="polite">
+          <div id="loginIdentityAvatar" class="login-identity-avatar"><i data-lucide="user-round"></i></div>
+          <div class="login-identity-copy">
+            <small>ACESSO</small>
+            <strong id="loginIdentityName">Digite seu usuário</strong>
+            <span id="loginIdentityMeta">Sua foto aparecerá aqui</span>
           </div>
+          <i class="login-identity-check" data-lucide="circle-check"></i>
+          <button id="changeLoginUser" class="login-change-user" type="button">Trocar usuário</button>
         </div>
 
         <form id="loginForm" class="login-form" autocomplete="off">
@@ -34,16 +42,6 @@
               <input id="email" type="text" inputmode="email" autocomplete="username" placeholder="Digite seu usuário" required />
             </div>
           </label>
-
-          <div id="loginIdentity" class="login-identity-reveal" hidden aria-live="polite">
-            <div id="loginIdentityAvatar" class="login-identity-avatar">U</div>
-            <div class="login-identity-copy">
-              <small>ACESSO IDENTIFICADO</small>
-              <strong id="loginIdentityName">Usuário</strong>
-              <span id="loginIdentityMeta">Plataforma Comercial</span>
-            </div>
-            <i data-lucide="circle-check"></i>
-          </div>
 
           <div id="loginPasswordStep" class="login-progressive-step" hidden>
             <label class="field">
@@ -57,6 +55,7 @@
             <p id="loginError" class="login-error" role="alert"></p>
             <button class="primary-button" type="submit">Entrar</button>
           </div>
+
           <div class="demo-access" aria-label="Acessos rápidos para pré-visualização">
             <span>Acessos rápidos</span>
             <div class="demo-buttons">

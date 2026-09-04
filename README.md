@@ -253,3 +253,10 @@ Publique também as novas `firestore.rules`, que incluem `fca_weekly_goals` e `f
 - O painel semanal do gestor e do vendedor foi visualmente integrado à página, reduzindo caixas/cards desnecessários.
 - O relatório diário do gestor destaca mais o nome do vendedor.
 - A Auditoria pode expandir a linha da venda para consultar os demais dados, mantendo somente visualização de comprovante e alteração do status de auditoria.
+
+### Ajuste visual do login — V37
+- Login sem card central, com composição aberta inspirada no fluxo de acesso do Windows.
+- Avatar/foto fica acima dos campos e é revelado após identificar o usuário.
+- Após a identificação, o campo de usuário recolhe e a senha assume o foco.
+- Botão "Trocar usuário" retorna ao primeiro passo.
+- Logo UNIFAHE fica separada da área de credenciais e responsiva no mobile.
