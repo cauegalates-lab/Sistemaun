@@ -260,3 +260,44 @@ Publique também as novas `firestore.rules`, que incluem `fca_weekly_goals` e `f
 - Após a identificação, o campo de usuário recolhe e a senha assume o foco.
 - Botão "Trocar usuário" retorna ao primeiro passo.
 - Logo UNIFAHE fica separada da área de credenciais e responsiva no mobile.
+
+## V38 — Times e personalização do Início
+
+A área **Times** deixou de ser um placeholder e passou a ser operacional.
+
+Times cadastrados no catálogo desta versão:
+- Alfas
+- GOAT
+- Winx
+- Alphas
+- Evolution
+- Elite
+- Predadores
+- Invictus
+
+### Gestor
+- Visualiza todos os times em cards.
+- Pode configurar membros e capitão de cada time.
+- Um vendedor fica em apenas um time: ao movê-lo, ele é retirado dos demais.
+- Pode escolher o indicador do time: `faturado`, `boleto` ou `ponto`.
+- Pode escolher a medição por `valor` ou `quantidade` (pontos usam quantidade).
+- Pode enviar/remover a logo de cada time (PNG/JPG/WEBP, até 4 MB).
+- Os resultados usam somente vendas com `audit_status === "ok"` do mês atual.
+
+### Vendedor
+- Visualiza somente o time em que está configurado.
+- Vê logo, capitão, integrantes e resultado individual de cada membro.
+- A foto do integrante usa a foto de perfil quando disponível; sem foto, o sistema usa iniciais.
+
+### Regra atual de pontos
+- Cartão: 2 pontos por matrícula.
+- Boleto: 1 ponto por matrícula.
+- Sem taxa migração: 1 ponto por matrícula.
+
+### Firebase
+Nova coleção: `commercial_teams`.
+As regras do Firestore permitem ao gestor administrar os times e ao vendedor ler apenas o time em que seu nome está listado.
+As logos de produção ficam em `team-logos/{teamId}/logo` no Firebase Storage. As regras de Storage foram atualizadas para leitura por usuários ativos e escrita somente pelo gestor.
+
+### Início
+A home ganhou mais identidade visual sem virar um segundo dashboard: faixa de boas-vindas com azul/laranja, resumo mensal com acentos diferentes por indicador, atalhos com faixa de cor e bloco de operação do dia mais destacado. O atalho de **Times** também foi incluído no carrossel de Gestor e Vendedor.

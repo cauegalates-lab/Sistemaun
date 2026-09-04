@@ -87,3 +87,14 @@ export const SELLERS = [
   'Rodolfo Henrique',
   'Vinicius Ribeiro'
 ];
+
+export const TEAM_DEFINITIONS = [
+  { id:'alfas', name:'Alfas', accent:'blue' },
+  { id:'goat', name:'GOAT', accent:'orange' },
+  { id:'winx', name:'Winx', accent:'pink' },
+  { id:'alphas', name:'Alphas', accent:'cyan' },
+  { id:'evolution', name:'Evolution', accent:'orange' },
+  { id:'elite', name:'Elite', accent:'gold' },
+  { id:'predadores', name:'Predadores', accent:'red' },
+  { id:'invictus', name:'Invictus', accent:'blue' }
+];

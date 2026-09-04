@@ -1,4 +1,4 @@
-import { STATES, PAYMENT_TYPES, MODALITIES, ORIGINS, COURSES, SELLERS } from './modules/catalogs.js';
+import { STATES, PAYMENT_TYPES, MODALITIES, ORIGINS, COURSES, SELLERS, TEAM_DEFINITIONS } from './modules/catalogs.js';
 import { SalesRepository } from './modules/repository.js';
 import { calculateDashboard, calculateSellerDashboard, fillDashboardText, renderCharts, renderSellerCharts, destroyCharts } from './modules/dashboard.js';
 import { escapeHTML, formatDateBR, formatDateTimeBR, fileSize, money, parseMoney, paymentLabel, todayISO, monthRangeISO } from './modules/utils.js';
@@ -7,6 +7,8 @@ import { ProfilePhotoStore, MAX_PROFILE_PHOTO_BYTES } from './modules/profile.js
 import { FcaRepository } from './modules/fca-repository.js';
 import { WeeklyPerformanceRepository } from './modules/weekly-performance-repository.js';
 import { GoalsRepository } from './modules/goals-repository.js';
+import { TeamsRepository } from './modules/teams-repository.js';
+import { TeamLogoStore, MAX_TEAM_LOGO_BYTES } from './modules/team-logo-store.js';
 import { loginAccount, logoutAccount, watchSession } from './modules/firebase.js';
 import { PREVIEW_LOGIN_ENABLED, authenticatePreview, previewCredentials, resolvePreviewIdentity } from './modules/runtime.js';
 
@@ -23,7 +25,6 @@ const MANAGER_ITEMS = [
   { id:'indicadores', label:'Indicadores', icon:'gauge', section:'Gestão' }
 ];
 const PAGE_COPY = {
-  times:['Times','Estrutura pronta para ranking, composição e acompanhamento dos times.'],
   campanhas:['Campanhas','Estrutura pronta para campanhas, metas e ações comerciais.']
 };
 
@@ -43,6 +44,10 @@ let weeklyPerformanceSeller = SELLERS[0] || '';
 let sellerDashboardMonth = todayISO().slice(0,7);
 let indicatorsMonth = todayISO().slice(0,7);
 let selectedIndicatorSeller = SELLERS[0] || '';
+let teamConfigsCache = [];
+let teamMemberPhotoUrls = [];
+let teamLogoObjectUrls = [];
+let teamLogoUrlById = new Map();
 
 const $ = s => document.querySelector(s);
 const loginView=$('#loginView'), appView=$('#appView'), loginForm=$('#loginForm'), loginError=$('#loginError');
@@ -327,7 +332,7 @@ async function signIn(user){
   userName.textContent=user.name; userRole.textContent=loginRoleLabel(user.role); userTeam.textContent=user.team||user.time||'Time não informado'; userSector.textContent=user.sector||user.setor||'Comercial';
   loginView.classList.add('is-hidden'); appView.classList.remove('is-hidden');
   await refreshUserPhoto(); refreshProfileSummary(); buildMenu();
-  try{ await loadSales(); refreshProfileSummary(); }catch(error){ salesCache=[]; refreshProfileSummary(); toast(error.message||'Não foi possível carregar as vendas do Firebase.','error'); }
+  try{ await loadSales(); await refreshResolvedUserTeam(); refreshProfileSummary(); }catch(error){ salesCache=[]; refreshProfileSummary(); toast(error.message||'Não foi possível carregar as vendas do Firebase.','error'); }
   renderPage(currentPage);
 }
 async function signOut(){
@@ -337,7 +342,14 @@ async function signOut(){
 }
 function resetSignedOutView(){
   if(activeProfilePhotoUrl){URL.revokeObjectURL(activeProfilePhotoUrl);activeProfilePhotoUrl='';}
-  currentUser=null; salesCache=[]; destroyCharts(); closeModal(); appView.classList.add('is-hidden'); loginView.classList.remove('is-hidden'); emailInput.value=''; passwordInput.value=''; hideLoginProgressiveStep(); closeMobileMenu();
+  currentUser=null; salesCache=[]; destroyCharts(); clearTeamVisualUrls(); closeModal(); appView.classList.add('is-hidden'); loginView.classList.remove('is-hidden'); emailInput.value=''; passwordInput.value=''; hideLoginProgressiveStep(); closeMobileMenu();
+}
+async function refreshResolvedUserTeam(){
+  if(currentUser?.role!=='vendedor') return;
+  try{
+    const teams=await TeamsRepository.listForSeller(currentUser.name);
+    if(teams[0]){currentUser.team=teams[0].name;userTeam.textContent=teams[0].name;}
+  }catch{}
 }
 async function loadSales(){ const result=await SalesRepository.list(); salesCache=result.rows; }
 function closeMobileMenu(){ sidebar.classList.remove('mobile-open'); mobileOverlay.classList.remove('visible'); }
@@ -391,11 +403,13 @@ function renderHome(){
   const priorityText=pending?(sellerOnly?'Acompanhe a validação para que essas vendas entrem nos seus indicadores.':'Há lançamentos pendentes de validação antes de entrarem nos dashboards.'):(sellerOnly?'Suas vendas lançadas não têm pendências de auditoria neste momento.':'Não há vendas pendentes de auditoria neste momento.');
   const shortcuts=sellerOnly?[
     ['dashboard','layout-dashboard','Meu dashboard','Metas, ritmo e projeções','orange'],
+    ['times','users-round','Meu time','Integrantes e resultado do time','blue'],
     ['vendas','badge-dollar-sign','Vendas','Consultar e lançar vendas',''],
     ['fca-semanal','calendar-check-2','Painel semanal','Meta e tarefas da semana','blue'],
     ['comissoes','circle-dollar-sign','Comissões','Acompanhar FCA e remuneração','']
   ]:[
     ['dashboard','layout-dashboard','Dashboard geral','Visão consolidada do comercial','orange'],
+    ['times','users-round','Times','Composição e desempenho dos times','blue'],
     ['vendas','badge-dollar-sign','Vendas','Operação e auditoria das vendas',''],
     ['indicadores','gauge','Indicadores','Metas e dashboards dos vendedores','blue'],
     ['fca-semanal','calendar-check-2','Painel semanal','Performance e relatórios da equipe',''],
@@ -467,6 +481,7 @@ function initHomeShortcutsCarousel(){
 
 function renderPage(id){
   closeModal();
+  if(id!=='times') clearTeamVisualUrls();
   if(currentUser.role==='auditoria' && id!=='vendas') id='vendas';
   currentPage=id;
   document.querySelectorAll('.nav-item[data-page]').forEach(el=>el.classList.toggle('active',el.dataset.page===id || (id==='fca-semanal'&&el.dataset.page==='fca')));
@@ -474,12 +489,192 @@ function renderPage(id){
   if(id==='inicio') return renderHome();
   if(id==='dashboard') return currentUser.role==='gestor'?renderDashboard({mode:'geral'}):renderSellerDashboard();
   if(id==='vendas') return renderSales();
+  if(id==='times') return renderTeams();
   if(id==='fca') return renderFCA();
   if(id==='fca-semanal') return renderWeeklyPerformance();
   if(id==='comissoes') return renderCommissions();
   if(id==='indicadores') return currentUser.role==='gestor'?renderIndicators():renderSellerDashboard();
   const [title,desc]=PAGE_COPY[id]||['Módulo','Estrutura pronta para receber conteúdo.'];
   content.innerHTML=`<section class="page-intro"><div><span class="eyebrow">MÓDULO</span><h2>${title}</h2><p>${desc}</p></div></section><section class="blank-canvas"><div class="blank-canvas-mark"><i data-lucide="layout-dashboard"></i></div><span>Conteúdo em branco por enquanto</span></section>`;
+  refreshIcons();
+}
+
+
+function teamMetricLabel(config={}){
+  const indicator=({faturado:'Faturado',boleto:'Boleto',ponto:'Pontos'})[config.indicator]||'Faturado';
+  if(config.indicator==='ponto') return indicator;
+  return `${indicator} • ${config.measure==='quantidade'?'Quantidade':'Valor'}`;
+}
+function teamMetricValue(config={},rows=[]){
+  const approved=rows.filter(row=>row.audit_status==='ok');
+  const source=config.indicator==='boleto'?approved.filter(row=>row.payment_type==='boleto'):approved;
+  if(config.indicator==='ponto'){
+    return approved.reduce((sum,row)=>{
+      const weight=row.payment_type==='cartao'?2:1;
+      return sum+(weight*Math.max(Number(row.course_quantity||1),1));
+    },0);
+  }
+  if(config.measure==='quantidade') return source.length;
+  return source.reduce((sum,row)=>sum+Number(row.total_value||0),0);
+}
+function formatTeamMetric(config,value){
+  return config.indicator!=='ponto'&&config.measure==='valor'?money.format(value):new Intl.NumberFormat('pt-BR').format(Number(value||0));
+}
+function teamMemberRows(config,month){
+  const monthRows=salesCache.filter(row=>String(row.sale_date||'').startsWith(month));
+  return (config.members||[]).map(name=>{
+    const rows=monthRows.filter(row=>row.seller_name===name);
+    return {name,value:teamMetricValue(config,rows)};
+  }).sort((a,b)=>b.value-a.value||a.name.localeCompare(b.name,'pt-BR'));
+}
+function teamAccentIcon(config){
+  return ({goat:'crown',winx:'sparkles',evolution:'trending-up',elite:'gem',predadores:'shield',invictus:'flame',alfas:'star',alphas:'zap'})[config.id]||'users-round';
+}
+function teamLogoMarkup(config,logoUrl='',size='card'){
+  if(logoUrl) return `<span class="team-logo team-logo-${size}"><img src="${escapeHTML(logoUrl)}" alt="Logo do time ${escapeHTML(config.name)}"></span>`;
+  return `<span class="team-logo team-logo-${size} is-placeholder team-accent-${escapeHTML(config.accent||'blue')}"><i data-lucide="${teamAccentIcon(config)}"></i></span>`;
+}
+function clearTeamVisualUrls(){
+  teamMemberPhotoUrls.forEach(url=>{if(String(url).startsWith('blob:'))URL.revokeObjectURL(url);});
+  teamLogoObjectUrls.forEach(url=>{if(String(url).startsWith('blob:'))URL.revokeObjectURL(url);});
+  teamMemberPhotoUrls=[];teamLogoObjectUrls=[];teamLogoUrlById.clear();
+}
+async function loadTeamLogos(configs){
+  teamLogoUrlById.clear();
+  for(const config of configs){
+    try{
+      const url=await TeamLogoStore.url(config);
+      if(url){teamLogoUrlById.set(config.id,url);if(url.startsWith('blob:'))teamLogoObjectUrls.push(url);}
+    }catch{}
+  }
+}
+async function hydrateTeamMemberPhotos(){
+  const targets=[...content.querySelectorAll('[data-team-member-photo]')];
+  await Promise.all(targets.map(async target=>{
+    const name=target.dataset.teamMemberPhoto;
+    let blob=null;
+    try{blob=await ProfilePhotoStore.get(name);}catch{}
+    if(!blob||!document.body.contains(target)) return;
+    const url=URL.createObjectURL(blob);teamMemberPhotoUrls.push(url);
+    target.innerHTML=`<img src="${url}" alt="Foto de ${escapeHTML(name)}">`;
+  }));
+}
+function teamCardMarkup(config,month,{manager=false}={}){
+  const memberRows=teamMemberRows(config,month);
+  const total=memberRows.reduce((sum,item)=>sum+item.value,0);
+  const logo=teamLogoUrlById.get(config.id)||'';
+  const hasMembers=memberRows.length>0;
+  return `<article class="team-card team-accent-${escapeHTML(config.accent||'blue')}">
+    <header class="team-card-head">
+      <div class="team-card-brand">${teamLogoMarkup(config,logo)}<div><span class="section-kicker">TIME</span><h3>${escapeHTML(config.name)}</h3><p>${escapeHTML(teamMetricLabel(config))}</p></div></div>
+      ${manager?`<button type="button" class="team-config-button" data-config-team="${escapeHTML(config.id)}"><i data-lucide="settings-2"></i><span>Configurar</span></button>`:''}
+    </header>
+    <div class="team-score-strip">
+      <div><span>RESULTADO DO MÊS</span><strong>${formatTeamMetric(config,total)}</strong></div>
+      <div><span>CAPITÃO</span><strong>${config.captain?escapeHTML(config.captain):'Não definido'}</strong></div>
+    </div>
+    <div class="team-members-head"><span>Integrante</span><span>${escapeHTML(config.indicator==='ponto'?'Pontos':config.measure==='valor'?'Resultado':'Quantidade')}</span></div>
+    <div class="team-members-list">
+      ${hasMembers?memberRows.map((member,index)=>`<div class="team-member-row ${member.name===config.captain?'is-captain':''}">
+        <span class="team-member-rank">${String(index+1).padStart(2,'0')}</span>
+        <span class="team-member-photo" data-team-member-photo="${escapeHTML(member.name)}">${escapeHTML(userInitials(member.name))}</span>
+        <div class="team-member-name"><strong>${escapeHTML(member.name)}</strong>${member.name===config.captain?'<small><i data-lucide="crown"></i> Capitão</small>':''}</div>
+        <strong class="team-member-value">${formatTeamMetric(config,member.value)}</strong>
+      </div>`).join(''):`<div class="team-empty-members"><i data-lucide="user-plus"></i><div><strong>Nenhum integrante configurado</strong><span>${manager?'Use Configurar para montar este time.':'A composição deste time ainda não foi definida pelo gestor.'}</span></div></div>`}
+    </div>
+  </article>`;
+}
+async function renderTeams(){
+  destroyCharts();
+  clearTeamVisualUrls();
+  const renderToken=Symbol('teams');
+  renderTeams.activeToken=renderToken;
+  content.innerHTML=`<section class="teams-page-head"><div><span class="eyebrow">OPERAÇÃO COMERCIAL</span><h2>Times</h2><p>${currentUser.role==='gestor'?'Acompanhe os times, seus integrantes e o indicador definido para cada disputa.':'Acompanhe o desempenho do seu time e sua posição entre os integrantes.'}</p></div><div class="teams-month-pill"><i data-lucide="calendar-days"></i><span>${new Intl.DateTimeFormat('pt-BR',{month:'long',year:'numeric'}).format(new Date(`${todayISO().slice(0,7)}-01T12:00:00`))}</span></div></section><section class="teams-loading"><i data-lucide="loader-circle" class="spin"></i><span>Carregando times...</span></section>`;
+  refreshIcons();
+  try{
+    let configs=currentUser.role==='gestor'?await TeamsRepository.list():await TeamsRepository.listForSeller(currentUser.name);
+    if(renderTeams.activeToken!==renderToken||currentPage!=='times')return;
+    if(currentUser.role==='vendedor'&&!configs.length&&currentUser.team){
+      const fallback=TEAM_DEFINITIONS.find(team=>team.name.toLowerCase()===String(currentUser.team).toLowerCase());
+      if(fallback) configs=[{...fallback,captain:'',members:[currentUser.name],indicator:'faturado',measure:'valor',logo_path:''}];
+    }
+    teamConfigsCache=configs;
+    await loadTeamLogos(configs);
+    if(renderTeams.activeToken!==renderToken||currentPage!=='times')return;
+    const month=todayISO().slice(0,7);
+    const manager=currentUser.role==='gestor';
+    content.innerHTML=`
+      <section class="teams-page-head">
+        <div><span class="eyebrow">${manager?'GESTÃO DE TIMES':'MEU TIME'}</span><h2>Times</h2><p>${manager?'Cada time pode ter capitão, composição e indicador próprios. O resultado considera somente vendas com auditoria OK.':'Seu resultado é atualizado pelas vendas aprovadas e pelo indicador definido pelo gestor.'}</p></div>
+        <div class="teams-month-pill"><i data-lucide="calendar-days"></i><span>${new Intl.DateTimeFormat('pt-BR',{month:'long',year:'numeric'}).format(new Date(`${month}-01T12:00:00`))}</span></div>
+      </section>
+      ${manager?`<section class="teams-manager-note"><span><i data-lucide="sliders-horizontal"></i></span><div><strong>Configuração independente por time</strong><p>Defina integrantes, capitão e se o ranking considera faturado, boletos ou pontos — por valor ou quantidade.</p></div></section>`:''}
+      <section class="teams-grid ${manager?'manager-grid':'seller-grid'}">${configs.length?configs.map(config=>teamCardMarkup(config,month,{manager})).join(''):`<div class="teams-no-team"><i data-lucide="users-round"></i><h3>Seu time ainda não foi configurado</h3><p>Quando o gestor incluir você em um time, ele aparecerá aqui automaticamente.</p></div>`}</section>`;
+    content.querySelectorAll('[data-config-team]').forEach(button=>button.addEventListener('click',()=>openTeamConfigModal(button.dataset.configTeam)));
+    refreshIcons();
+    hydrateTeamMemberPhotos();
+  }catch(error){
+    if(renderTeams.activeToken!==renderToken)return;
+    content.innerHTML=`<section class="page-intro"><div><span class="eyebrow">TIMES</span><h2>Não foi possível carregar</h2><p>${escapeHTML(error.message||'Tente novamente em instantes.')}</p></div></section>`;
+  }
+}
+async function openTeamConfigModal(teamId){
+  if(currentUser.role!=='gestor')return;
+  const config=teamConfigsCache.find(item=>item.id===teamId)||TEAM_DEFINITIONS.find(item=>item.id===teamId);
+  if(!config)return;
+  const logo=teamLogoUrlById.get(config.id)||'';
+  openModal(`<div class="mini-modal team-config-modal">
+    <div class="modal-head"><div><span class="section-kicker">CONFIGURAÇÃO DO TIME</span><h3>${escapeHTML(config.name)}</h3><p>O resultado do time será recalculado automaticamente com as vendas OK.</p></div><button class="modal-close" data-close-modal><i data-lucide="x"></i></button></div>
+    <form id="teamConfigForm" class="team-config-form">
+      <div class="team-config-top">
+        <div class="team-logo-editor-wrap">${teamLogoMarkup(config,logo,'editor')}<label class="secondary-action team-logo-upload"><i data-lucide="image-up"></i>Alterar logo<input type="file" name="logo" accept="image/png,image/jpeg,image/webp" hidden></label>${logo?'<button type="button" class="team-logo-remove" data-remove-team-logo><i data-lucide="trash-2"></i>Remover</button>':''}</div>
+        <div class="team-config-fields">
+          <label class="form-field"><span>Indicador do time</span><select name="indicator"><option value="faturado" ${config.indicator==='faturado'?'selected':''}>Faturado</option><option value="boleto" ${config.indicator==='boleto'?'selected':''}>Boleto</option><option value="ponto" ${config.indicator==='ponto'?'selected':''}>Pontos</option></select></label>
+          <label class="form-field"><span>Forma de medição</span><select name="measure" ${config.indicator==='ponto'?'disabled':''}><option value="valor" ${config.measure==='valor'?'selected':''}>Valor (R$)</option><option value="quantidade" ${config.measure==='quantidade'?'selected':''}>Quantidade</option></select><small class="field-help" data-measure-help>${config.indicator==='ponto'?'Cartão = 2 pontos; Boleto e Sem taxa = 1 ponto por matrícula.':'Escolha como o resultado será exibido.'}</small></label>
+          <label class="form-field"><span>Capitão</span><select name="captain"><option value="">Não definido</option>${SELLERS.map(name=>`<option value="${escapeHTML(name)}" ${config.captain===name?'selected':''}>${escapeHTML(name)}</option>`).join('')}</select></label>
+        </div>
+      </div>
+      <div class="team-members-config">
+        <div class="team-members-config-head"><div><span class="section-kicker">INTEGRANTES</span><h4>Monte o time</h4></div><label class="team-member-search"><i data-lucide="search"></i><input type="search" placeholder="Buscar vendedor" data-team-member-search></label></div>
+        <div class="team-member-options">${SELLERS.map(name=>`<label class="team-member-option" data-member-option="${escapeHTML(name.toLowerCase())}"><input type="checkbox" name="members" value="${escapeHTML(name)}" ${(config.members||[]).includes(name)?'checked':''}><span class="team-member-option-avatar">${escapeHTML(userInitials(name))}</span><strong>${escapeHTML(name)}</strong><i data-lucide="check"></i></label>`).join('')}</div>
+        <p class="team-config-note"><i data-lucide="info"></i>Ao mover um vendedor para este time, ele será removido automaticamente dos outros times para não ficar duplicado.</p>
+      </div>
+      <div class="modal-actions"><button type="button" class="secondary-action" data-close-modal>Cancelar</button><button type="submit" class="primary-action"><i data-lucide="save"></i>Salvar time</button></div>
+    </form>
+  </div>`);
+  const form=$('#teamConfigForm');
+  const indicator=form.elements.indicator,measure=form.elements.measure,help=form.querySelector('[data-measure-help]');
+  indicator.addEventListener('change',()=>{
+    const points=indicator.value==='ponto';measure.disabled=points;if(points)measure.value='quantidade';help.textContent=points?'Cartão = 2 pontos; Boleto e Sem taxa = 1 ponto por matrícula.':'Escolha como o resultado será exibido.';
+  });
+  const search=form.querySelector('[data-team-member-search]');
+  search.addEventListener('input',()=>{const q=search.value.trim().toLowerCase();form.querySelectorAll('[data-member-option]').forEach(option=>option.hidden=q&&!option.dataset.memberOption.includes(q));});
+  form.querySelector('[data-remove-team-logo]')?.addEventListener('click',async event=>{
+    const button=event.currentTarget;button.disabled=true;
+    try{await TeamLogoStore.remove(config);const saved=await TeamsRepository.save({...config,logo_path:''});teamConfigsCache=teamConfigsCache.map(item=>item.id===saved.id?saved:item);toast('Logo removida.');closeModal();renderTeams();}
+    catch(error){toast(error.message||'Não foi possível remover a logo.','error');button.disabled=false;}
+  });
+  form.addEventListener('submit',async event=>{
+    event.preventDefault();
+    const submit=form.querySelector('button[type="submit"]');submit.disabled=true;
+    try{
+      const selected=[...form.querySelectorAll('input[name="members"]:checked')].map(input=>input.value);
+      const captain=form.elements.captain.value;if(captain&&!selected.includes(captain))selected.push(captain);
+      const indicatorValue=form.elements.indicator.value;
+      const measureValue=indicatorValue==='ponto'?'quantidade':form.elements.measure.value;
+      let logoPath=config.logo_path||'';
+      const logoFile=form.elements.logo.files?.[0];
+      if(logoFile){if(logoFile.size>MAX_TEAM_LOGO_BYTES)throw new Error('A logo deve ter no máximo 4 MB.');logoPath=(await TeamLogoStore.save(config.id,logoFile)).logo_path;}
+      const moved=new Set(selected);
+      for(const other of teamConfigsCache){
+        if(other.id===config.id)continue;
+        const members=(other.members||[]).filter(name=>!moved.has(name));
+        if(members.length!==(other.members||[]).length){await TeamsRepository.save({...other,members,captain:members.includes(other.captain)?other.captain:''});}
+      }
+      await TeamsRepository.save({...config,members:selected,captain,indicator:indicatorValue,measure:measureValue,logo_path:logoPath});
+      toast('Time atualizado.');closeModal();renderTeams();
+    }catch(error){toast(error.message||'Não foi possível salvar o time.','error');submit.disabled=false;}
+  });
   refreshIcons();
 }
 

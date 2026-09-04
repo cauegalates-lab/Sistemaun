@@ -43,6 +43,13 @@ service cloud.firestore {
       allow create, update, delete: if isManager();
     }
 
+    match /commercial_teams/{teamId} {
+      allow read: if active() && (
+        isManager() || (isSeller() && resource.data.members.hasAny([profile().name]))
+      );
+      allow create, update, delete: if isManager();
+    }
+
     match /fca_reports/{reportId} {
       allow read: if active() && (isManager() || (isSeller() && resource.data.seller_uid == request.auth.uid));
       allow create: if isSeller() && request.resource.data.seller_uid == request.auth.uid;

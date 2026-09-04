@@ -20,5 +20,13 @@ service firebase.storage {
       allow create, update: if active() && (isManager() || ownsSale(saleId)) && validReceipt();
       allow delete: if active() && (isManager() || ownsSale(saleId));
     }
+
+
+    match /team-logos/{teamId}/{fileName} {
+      allow read: if active();
+      allow create, update: if isManager() && request.resource.size <= 4 * 1024 * 1024 &&
+        request.resource.contentType.matches('image/jpeg|image/png|image/webp');
+      allow delete: if isManager();
+    }
   }
 }
