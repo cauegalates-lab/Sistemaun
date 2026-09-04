@@ -8,7 +8,7 @@ import { FcaRepository } from './modules/fca-repository.js';
 import { WeeklyPerformanceRepository } from './modules/weekly-performance-repository.js';
 import { GoalsRepository } from './modules/goals-repository.js';
 import { loginAccount, logoutAccount, watchSession } from './modules/firebase.js';
-import { PREVIEW_LOGIN_ENABLED, authenticatePreview, previewCredentials } from './modules/runtime.js';
+import { PREVIEW_LOGIN_ENABLED, authenticatePreview, previewCredentials, resolvePreviewIdentity } from './modules/runtime.js';
 
 const COMMON_ITEMS = [
   { id:'inicio', label:'Início', icon:'house', section:'Principal' },
@@ -46,11 +46,14 @@ let selectedIndicatorSeller = SELLERS[0] || '';
 
 const $ = s => document.querySelector(s);
 const loginView=$('#loginView'), appView=$('#appView'), loginForm=$('#loginForm'), loginError=$('#loginError');
-const emailInput=$('#email'), passwordInput=$('#password'), sidebar=$('#sidebar'), sidebarNav=$('#sidebarNav');
+const emailInput=$('#email'), passwordInput=$('#password'), loginIdentity=$('#loginIdentity'), loginIdentityAvatar=$('#loginIdentityAvatar'), loginIdentityName=$('#loginIdentityName'), loginIdentityMeta=$('#loginIdentityMeta'), loginPasswordStep=$('#loginPasswordStep'), sidebar=$('#sidebar'), sidebarNav=$('#sidebarNav');
 const content=$('#content'), userName=$('#userName'), userRole=$('#userRole'), userAvatar=$('#userAvatar');
 const mobileOverlay=$('#mobileOverlay'), modalHost=$('#modalHost');
 const profileTrigger=$('#profileTrigger'), profileDrawer=$('#profileDrawer'), profileOverlay=$('#profileOverlay'), profileCloseButton=$('#profileCloseButton');
 const profilePhotoInput=$('#profilePhotoInput'), profilePhotoPreview=$('#profilePhotoPreview'), removeProfilePhoto=$('#removeProfilePhoto');
+const userTeam=$('#userTeam'), userSector=$('#userSector'), profilePerformance=$('#profilePerformance'), profilePerformanceTitle=$('#profilePerformanceTitle'), profileCommissionMonth=$('#profileCommissionMonth');
+const profileTotalRevenue=$('#profileTotalRevenue'), profileTotalBoletos=$('#profileTotalBoletos'), profileTotalEnrollments=$('#profileTotalEnrollments');
+const profileRevenueCommission=$('#profileRevenueCommission'), profileBoletoCommission=$('#profileBoletoCommission'), profileEnrollmentCommission=$('#profileEnrollmentCommission'), profileCommissionTotal=$('#profileCommissionTotal');
 const sidebarTooltip=document.createElement('div');
 sidebarTooltip.className='sidebar-hover-tooltip';
 sidebarTooltip.hidden=true;
@@ -71,7 +74,82 @@ function getMenuItems(){
 }
 function canAudit(){ return currentUser?.role==='gestor' || currentUser?.role==='auditoria'; }
 function canManageReceipts(){ return currentUser?.role!=='auditoria'; }
-function userInitials(name){ return name.split(' ').filter(Boolean).map(p=>p[0]).slice(0,2).join('').toUpperCase(); }
+function userInitials(name){ return String(name||'Usuário').split(' ').filter(Boolean).map(p=>p[0]).slice(0,2).join('').toUpperCase(); }
+
+function normalizeLoginIdentifier(value=''){
+  const raw=String(value||'').trim().toLowerCase();
+  if(PREVIEW_LOGIN_ENABLED) return raw;
+  if(!raw || raw.includes('@')) return raw;
+  return `${raw}@unifahe.com.br`;
+}
+
+function loginRoleLabel(role='vendedor'){
+  return role==='gestor'?'Gestor':role==='auditoria'?'Auditoria':'Vendedor';
+}
+
+let loginIdentityPhotoUrl='';
+let loginRevealTimer=0;
+function clearLoginIdentityPhoto(){
+  if(loginIdentityPhotoUrl){ URL.revokeObjectURL(loginIdentityPhotoUrl); loginIdentityPhotoUrl=''; }
+}
+function hideLoginProgressiveStep({clearPassword=false}={}){
+  clearTimeout(loginRevealTimer);
+  clearLoginIdentityPhoto();
+  loginIdentity.hidden=true;
+  loginPasswordStep.hidden=true;
+  passwordInput.disabled=true;
+  loginIdentity.classList.remove('is-visible');
+  loginPasswordStep.classList.remove('is-visible');
+  if(clearPassword) passwordInput.value='';
+}
+async function loadLoginIdentityPhoto(identity,identifier){
+  clearLoginIdentityPhoto();
+  const keys=[identity?.id,identity?.uid,identity?.email,identifier,identity?.name].filter(Boolean);
+  let blob=null;
+  for(const key of keys){
+    try{ blob=await ProfilePhotoStore.get(key); }catch{}
+    if(blob) break;
+  }
+  if(blob){
+    loginIdentityPhotoUrl=URL.createObjectURL(blob);
+    loginIdentityAvatar.innerHTML=`<img src="${loginIdentityPhotoUrl}" alt="Foto de ${escapeHTML(identity?.name||'usuário')}">`;
+  }else{
+    loginIdentityAvatar.textContent=userInitials(identity?.name||identifier||'Usuário');
+  }
+}
+async function revealLoginProgressiveStep(){
+  const raw=emailInput.value.trim();
+  if(raw.length<2){ hideLoginProgressiveStep({clearPassword:true}); return; }
+  const identity=PREVIEW_LOGIN_ENABLED ? resolvePreviewIdentity(raw) : null;
+  const fallbackName=raw.includes('@')?raw.split('@')[0].replace(/[._-]+/g,' '):raw;
+  const displayIdentity=identity||{
+    name:fallbackName.replace(/\b\w/g,char=>char.toUpperCase()),
+    role:'vendedor',
+    id:normalizeLoginIdentifier(raw),
+    email:normalizeLoginIdentifier(raw),
+    sector:'Comercial'
+  };
+  await loadLoginIdentityPhoto(displayIdentity,raw);
+  if(emailInput.value.trim()!==raw) return;
+  loginIdentityName.textContent=displayIdentity.name||'Usuário';
+  const context=[loginRoleLabel(displayIdentity.role),displayIdentity.team||'',displayIdentity.sector||''].filter(Boolean).join(' · ');
+  loginIdentityMeta.textContent=context||'Plataforma Comercial';
+  loginIdentity.hidden=false;
+  loginPasswordStep.hidden=false;
+  passwordInput.disabled=false;
+  requestAnimationFrame(()=>{
+    loginIdentity.classList.add('is-visible');
+    loginPasswordStep.classList.add('is-visible');
+    refreshIcons();
+  });
+}
+function scheduleLoginReveal(){
+  clearTimeout(loginRevealTimer);
+  loginError.textContent='';
+  const raw=emailInput.value.trim();
+  if(raw.length<2){ hideLoginProgressiveStep({clearPassword:true}); return; }
+  loginRevealTimer=setTimeout(()=>revealLoginProgressiveStep(),280);
+}
 
 function setAvatarVisual(element, imageUrl='') {
   if (!element || !currentUser) return;
@@ -81,24 +159,75 @@ function setAvatarVisual(element, imageUrl='') {
 async function refreshUserPhoto(){
   if(activeProfilePhotoUrl){ URL.revokeObjectURL(activeProfilePhotoUrl); activeProfilePhotoUrl=''; }
   let blob=null;
-  try{ blob=await ProfilePhotoStore.get(currentUser.id || currentUser.name); }catch{}
+  const keys=[currentUser?.id,currentUser?.uid,currentUser?.email,currentUser?.name].filter(Boolean);
+  for(const key of keys){
+    try{ blob=await ProfilePhotoStore.get(key); }catch{}
+    if(blob) break;
+  }
   activeProfilePhotoUrl=blob?URL.createObjectURL(blob):'';
   setAvatarVisual(userAvatar,activeProfilePhotoUrl); setAvatarVisual(profilePhotoPreview,activeProfilePhotoUrl);
   removeProfilePhoto.classList.toggle('is-hidden',!blob);
 }
-function openProfileDrawer(){ profileDrawer.classList.add('is-open'); profileOverlay.classList.add('visible'); profileTrigger.setAttribute('aria-expanded','true'); refreshIcons(); }
+async function saveUserPhotoAliases(file){
+  const keys=[currentUser?.id,currentUser?.uid,currentUser?.email,currentUser?.name].filter(Boolean);
+  for(const key of [...new Set(keys)]) await ProfilePhotoStore.save(key,file);
+}
+async function removeUserPhotoAliases(){
+  const keys=[currentUser?.id,currentUser?.uid,currentUser?.email,currentUser?.name].filter(Boolean);
+  await Promise.all([...new Set(keys)].map(key=>ProfilePhotoStore.remove(key).catch(()=>{})));
+}
+function profileApprovedRows(){
+  const approved=salesCache.filter(row=>row.audit_status==='ok');
+  if(currentUser?.role==='vendedor') return approved.filter(row=>row.seller_name===currentUser.name);
+  if(currentUser?.role==='gestor') return approved;
+  return [];
+}
+function refreshProfileSummary(){
+  if(!currentUser) return;
+  userTeam.textContent=currentUser.team||currentUser.time||'Time não informado';
+  userSector.textContent=currentUser.sector||currentUser.setor||'Comercial';
+  const rows=profileApprovedRows();
+  const revenue=rows.reduce((sum,row)=>sum+Number(row.total_value||0),0);
+  const boletos=rows.filter(row=>row.payment_type==='boleto').length;
+  const enrollments=rows.reduce((sum,row)=>sum+Number(row.course_quantity||0),0);
+  profileTotalRevenue.textContent=money.format(revenue);
+  profileTotalBoletos.textContent=String(boletos);
+  profileTotalEnrollments.textContent=String(enrollments);
+  profilePerformanceTitle.textContent=currentUser.role==='gestor'?'Produção geral da equipe':'Meu histórico geral';
+  const month=todayISO().slice(0,7);
+  const [year,monthNumber]=month.split('-').map(Number);
+  const monthLabel=new Intl.DateTimeFormat('pt-BR',{month:'long',year:'numeric'}).format(new Date(year,monthNumber-1,1));
+  profileCommissionMonth.textContent=monthLabel;
+  if(currentUser.role==='vendedor'){
+    const snapshot=calculateCommissionSnapshot(salesCache,{seller:currentUser.name,month});
+    profileRevenueCommission.textContent=`Comissão mês: ${money.format(snapshot.quitadoCommission.reward)}`;
+    profileBoletoCommission.textContent=`Bonificação mês: ${money.format(snapshot.boletoBonification.reward)}`;
+    profileEnrollmentCommission.textContent=`Comissão mês: ${money.format(snapshot.enrollmentCommission.reward)}`;
+    const direct=snapshot.quitadoCommission.reward+snapshot.boletoBonification.reward+snapshot.enrollmentCommission.reward;
+    profileCommissionTotal.hidden=false;
+    profileCommissionTotal.querySelector('strong').textContent=money.format(direct);
+  }else{
+    profileRevenueCommission.textContent='Visão acumulada';
+    profileBoletoCommission.textContent='Visão acumulada';
+    profileEnrollmentCommission.textContent='Visão acumulada';
+    profileCommissionTotal.hidden=true;
+  }
+  profilePerformance.hidden=currentUser.role==='auditoria';
+}
+function openProfileDrawer(){ profileDrawer.classList.add('is-open'); profileOverlay.classList.add('visible'); profileTrigger.setAttribute('aria-expanded','true'); refreshProfileSummary(); refreshIcons(); }
 function closeProfileDrawer(){ profileDrawer.classList.remove('is-open'); profileOverlay.classList.remove('visible'); profileTrigger.setAttribute('aria-expanded','false'); }
 
 loginForm.addEventListener('submit', async e=>{
   e.preventDefault();
-  const email=emailInput.value.trim().toLowerCase();
+  const identifier=emailInput.value.trim();
+  const email=normalizeLoginIdentifier(identifier);
   const password=passwordInput.value;
-  if(!email || !password){ loginError.textContent='Informe o e-mail e a senha.'; return; }
+  if(!identifier || !password){ loginError.textContent='Informe o usuário e a senha.'; return; }
   const submit=loginForm.querySelector('button[type="submit"]');
   submit.disabled=true; submit.textContent='Entrando...'; loginError.textContent='';
   try{
     const profile=PREVIEW_LOGIN_ENABLED
-      ? authenticatePreview(email,password)
+      ? authenticatePreview(identifier,password)
       : await loginAccount(email,password);
     if(!currentUser) await signIn(profile);
   }catch(error){ loginError.textContent=error.message||'Não foi possível entrar.'; }
@@ -107,12 +236,16 @@ loginForm.addEventListener('submit', async e=>{
 
 document.querySelectorAll('[data-demo]').forEach(button=>button.addEventListener('click',()=>{
   const credentials=previewCredentials(button.dataset.demo);
-  emailInput.value=credentials.email;
+  emailInput.value=credentials.identifier||credentials.email;
   passwordInput.value=credentials.password;
   loginError.textContent='';
   emailInput.dispatchEvent(new Event('input',{bubbles:true}));
+  revealLoginProgressiveStep();
   passwordInput.dispatchEvent(new Event('input',{bubbles:true}));
 }));
+
+emailInput.addEventListener('input',scheduleLoginReveal);
+emailInput.addEventListener('blur',()=>{ if(emailInput.value.trim().length>=2) revealLoginProgressiveStep(); });
 
 $('#togglePassword').addEventListener('click',()=>{
   const show=passwordInput.type==='password'; passwordInput.type=show?'text':'password';
@@ -162,12 +295,12 @@ profileCloseButton.addEventListener('click',closeProfileDrawer);
 profilePhotoInput.addEventListener('change',async()=>{
   const file=profilePhotoInput.files?.[0]; if(!file)return;
   if(file.size>MAX_PROFILE_PHOTO_BYTES){ toast('A foto deve ter no máximo 4 MB.','error'); profilePhotoInput.value=''; return; }
-  try{ await ProfilePhotoStore.save(currentUser.id || currentUser.name,file); await refreshUserPhoto(); toast('Foto de perfil atualizada.'); }
+  try{ await saveUserPhotoAliases(file); await refreshUserPhoto(); toast('Foto de perfil atualizada.'); }
   catch(error){ toast(error.message||'Não foi possível salvar a foto.','error'); }
   finally{ profilePhotoInput.value=''; }
 });
 removeProfilePhoto.addEventListener('click',async()=>{
-  try{ await ProfilePhotoStore.remove(currentUser.id || currentUser.name); await refreshUserPhoto(); toast('Foto de perfil removida.'); }
+  try{ await removeUserPhotoAliases(); await refreshUserPhoto(); toast('Foto de perfil removida.'); }
   catch{ toast('Não foi possível remover a foto.','error'); }
 });
 $('#logoutButton').dataset.tooltip='Sair';
@@ -176,10 +309,10 @@ $('#logoutButton').addEventListener('click',signOut);
 
 async function signIn(user){
   currentUser=user; currentPage=user.role==='auditoria'?'vendas':'inicio';
-  userName.textContent=user.name; userRole.textContent=user.role==='gestor'?'Gestor':user.role==='auditoria'?'Auditoria':'Vendedor';
+  userName.textContent=user.name; userRole.textContent=loginRoleLabel(user.role); userTeam.textContent=user.team||user.time||'Time não informado'; userSector.textContent=user.sector||user.setor||'Comercial';
   loginView.classList.add('is-hidden'); appView.classList.remove('is-hidden');
-  await refreshUserPhoto(); buildMenu();
-  try{ await loadSales(); }catch(error){ salesCache=[]; toast(error.message||'Não foi possível carregar as vendas do Firebase.','error'); }
+  await refreshUserPhoto(); refreshProfileSummary(); buildMenu();
+  try{ await loadSales(); refreshProfileSummary(); }catch(error){ salesCache=[]; refreshProfileSummary(); toast(error.message||'Não foi possível carregar as vendas do Firebase.','error'); }
   renderPage(currentPage);
 }
 async function signOut(){
@@ -189,7 +322,7 @@ async function signOut(){
 }
 function resetSignedOutView(){
   if(activeProfilePhotoUrl){URL.revokeObjectURL(activeProfilePhotoUrl);activeProfilePhotoUrl='';}
-  currentUser=null; salesCache=[]; destroyCharts(); closeModal(); appView.classList.add('is-hidden'); loginView.classList.remove('is-hidden'); emailInput.value=''; passwordInput.value=''; closeMobileMenu();
+  currentUser=null; salesCache=[]; destroyCharts(); closeModal(); appView.classList.add('is-hidden'); loginView.classList.remove('is-hidden'); emailInput.value=''; passwordInput.value=''; hideLoginProgressiveStep(); closeMobileMenu();
 }
 async function loadSales(){ const result=await SalesRepository.list(); salesCache=result.rows; }
 function closeMobileMenu(){ sidebar.classList.remove('mobile-open'); mobileOverlay.classList.remove('visible'); }
@@ -269,8 +402,8 @@ function renderHome(){
     </section>
     <section class="home-main-grid">
       <div class="home-shortcuts-area">
-        <div class="home-section-heading"><div><span class="section-kicker">ATALHOS</span><h3>Acesso rápido</h3></div><span>Entre direto no que precisa acompanhar.</span></div>
-        <div class="home-shortcuts-grid">${shortcuts.map(item=>homeShortcut(...item)).join('')}</div>
+        <div class="home-section-heading home-shortcuts-heading"><div><span class="section-kicker">ATALHOS</span><h3>Acesso rápido</h3></div><div class="home-shortcuts-heading-actions"><span>Entre direto no que precisa acompanhar.</span><div class="home-shortcuts-nav" aria-label="Navegação dos atalhos"><button type="button" data-home-shortcuts-prev aria-label="Atalhos anteriores"><i data-lucide="chevron-left"></i></button><button type="button" data-home-shortcuts-next aria-label="Próximos atalhos"><i data-lucide="chevron-right"></i></button></div></div></div>
+        <div class="home-shortcuts-viewport" data-home-shortcuts-viewport tabindex="0"><div class="home-shortcuts-track">${shortcuts.map(item=>homeShortcut(...item)).join('')}</div></div>
       </div>
       <aside class="home-today-panel">
         <div class="home-section-heading compact"><div><span class="section-kicker">HOJE</span><h3>Operação do dia</h3></div></div>
@@ -283,7 +416,38 @@ function renderHome(){
       </aside>
     </section>`;
   content.querySelectorAll('[data-home-page]').forEach(button=>button.addEventListener('click',()=>renderPage(button.dataset.homePage)));
+  initHomeShortcutsCarousel();
   refreshIcons();
+}
+
+function initHomeShortcutsCarousel(){
+  const viewport=content.querySelector('[data-home-shortcuts-viewport]');
+  const prev=content.querySelector('[data-home-shortcuts-prev]');
+  const next=content.querySelector('[data-home-shortcuts-next]');
+  if(!viewport || !prev || !next) return;
+
+  const getStep=()=>{
+    const card=viewport.querySelector('.home-shortcut');
+    if(!card) return Math.max(viewport.clientWidth*.78,220);
+    const styles=getComputedStyle(viewport.querySelector('.home-shortcuts-track'));
+    const gap=parseFloat(styles.columnGap||styles.gap||0)||0;
+    return card.getBoundingClientRect().width+gap;
+  };
+  const update=()=>{
+    const max=Math.max(0,viewport.scrollWidth-viewport.clientWidth);
+    prev.disabled=viewport.scrollLeft<=3;
+    next.disabled=viewport.scrollLeft>=max-3;
+  };
+  const move=direction=>viewport.scrollBy({left:getStep()*direction,behavior:'smooth'});
+
+  prev.addEventListener('click',()=>move(-1));
+  next.addEventListener('click',()=>move(1));
+  viewport.addEventListener('scroll',update,{passive:true});
+  viewport.addEventListener('keydown',event=>{
+    if(event.key==='ArrowLeft'){event.preventDefault();move(-1);}
+    if(event.key==='ArrowRight'){event.preventDefault();move(1);}
+  });
+  requestAnimationFrame(update);
 }
 
 function renderPage(id){

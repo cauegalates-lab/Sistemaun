@@ -27,23 +27,36 @@
         </div>
 
         <form id="loginForm" class="login-form" autocomplete="off">
-          <label class="field">
-            <span>E-mail</span>
+          <label class="field login-user-field">
+            <span>Usuário</span>
             <div class="field-control">
-              <i data-lucide="mail"></i>
-              <input id="email" type="email" placeholder="seuemail@unifahe.com.br" required />
+              <i data-lucide="user-round"></i>
+              <input id="email" type="text" inputmode="email" autocomplete="username" placeholder="Digite seu usuário" required />
             </div>
           </label>
-          <label class="field">
-            <span>Senha</span>
-            <div class="field-control">
-              <i data-lucide="lock-keyhole"></i>
-              <input id="password" type="password" placeholder="Digite sua senha" required />
-              <button id="togglePassword" class="icon-button password-toggle" type="button" aria-label="Mostrar senha"><i data-lucide="eye"></i></button>
+
+          <div id="loginIdentity" class="login-identity-reveal" hidden aria-live="polite">
+            <div id="loginIdentityAvatar" class="login-identity-avatar">U</div>
+            <div class="login-identity-copy">
+              <small>ACESSO IDENTIFICADO</small>
+              <strong id="loginIdentityName">Usuário</strong>
+              <span id="loginIdentityMeta">Plataforma Comercial</span>
             </div>
-          </label>
-          <p id="loginError" class="login-error" role="alert"></p>
-          <button class="primary-button" type="submit">Entrar</button>
+            <i data-lucide="circle-check"></i>
+          </div>
+
+          <div id="loginPasswordStep" class="login-progressive-step" hidden>
+            <label class="field">
+              <span>Senha</span>
+              <div class="field-control">
+                <i data-lucide="lock-keyhole"></i>
+                <input id="password" type="password" autocomplete="current-password" placeholder="Digite sua senha" required disabled />
+                <button id="togglePassword" class="icon-button password-toggle" type="button" aria-label="Mostrar senha"><i data-lucide="eye"></i></button>
+              </div>
+            </label>
+            <p id="loginError" class="login-error" role="alert"></p>
+            <button class="primary-button" type="submit">Entrar</button>
+          </div>
           <div class="demo-access" aria-label="Acessos rápidos para pré-visualização">
             <span>Acessos rápidos</span>
             <div class="demo-buttons">
@@ -85,18 +98,52 @@
     </section>
     <button id="mobileOverlay" class="mobile-overlay" type="button" aria-label="Fechar menu"></button>
     <button id="profileOverlay" class="profile-overlay" type="button" aria-label="Fechar perfil"></button>
-    <aside id="profileDrawer" class="profile-drawer" aria-label="Perfil do usuário">
-      <div class="profile-drawer-head"><div><span>PERFIL</span><strong>Minha conta</strong></div><button id="profileCloseButton" type="button" aria-label="Fechar perfil"><i data-lucide="x"></i></button></div>
-      <div class="profile-photo-section">
+    <aside id="profileDrawer" class="profile-drawer" aria-label="Minha conta">
+      <div class="profile-drawer-head"><div><span>CONTA</span><strong>Minha conta</strong></div><button id="profileCloseButton" type="button" aria-label="Fechar perfil"><i data-lucide="x"></i></button></div>
+
+      <div class="profile-photo-section profile-account-identity">
         <div id="profilePhotoPreview" class="profile-photo-preview">U</div>
-        <div class="profile-identity"><strong id="userName">Usuário</strong><span id="userRole">Vendedor</span></div>
+        <div class="profile-identity">
+          <strong id="userName">Usuário</strong>
+          <span id="userRole">Vendedor</span>
+          <div class="profile-context">
+            <span><i data-lucide="users-round"></i><b id="userTeam">Time não informado</b></span>
+            <span><i data-lucide="building-2"></i><b id="userSector">Comercial</b></span>
+          </div>
+        </div>
       </div>
-      <div class="profile-settings-block">
+
+      <section id="profilePerformance" class="profile-performance" aria-label="Resumo de produção">
+        <div class="profile-section-heading">
+          <div><span>PRODUÇÃO</span><strong id="profilePerformanceTitle">Meu histórico geral</strong></div>
+          <small id="profileCommissionMonth">Mês atual</small>
+        </div>
+        <div class="profile-performance-list">
+          <div class="profile-performance-row">
+            <span class="profile-performance-icon"><i data-lucide="banknote"></i></span>
+            <div><small>TOTAL FATURADO</small><strong id="profileTotalRevenue">R$ 0,00</strong><span id="profileRevenueCommission">Comissão mês: R$ 0,00</span></div>
+          </div>
+          <div class="profile-performance-row">
+            <span class="profile-performance-icon"><i data-lucide="barcode"></i></span>
+            <div><small>TOTAL DE BOLETOS</small><strong id="profileTotalBoletos">0</strong><span id="profileBoletoCommission">Bonificação mês: R$ 0,00</span></div>
+          </div>
+          <div class="profile-performance-row">
+            <span class="profile-performance-icon"><i data-lucide="graduation-cap"></i></span>
+            <div><small>TOTAL DE MATRÍCULAS</small><strong id="profileTotalEnrollments">0</strong><span id="profileEnrollmentCommission">Comissão mês: R$ 0,00</span></div>
+          </div>
+        </div>
+        <div id="profileCommissionTotal" class="profile-commission-total">
+          <span>COMISSÃO + BONIFICAÇÃO NO MÊS</span><strong>R$ 0,00</strong>
+        </div>
+      </section>
+
+      <div class="profile-settings-block profile-photo-settings">
         <span class="profile-settings-label">FOTO DE PERFIL</span>
-        <p>Use uma imagem para identificar seu perfil no painel.</p>
-        <label class="profile-photo-action" for="profilePhotoInput"><i data-lucide="camera"></i><span>Escolher foto</span></label>
-        <input id="profilePhotoInput" type="file" accept="image/jpeg,image/png,image/webp" hidden>
-        <button id="removeProfilePhoto" class="profile-photo-remove is-hidden" type="button"><i data-lucide="trash-2"></i>Remover foto</button>
+        <div class="profile-photo-actions">
+          <label class="profile-photo-action" for="profilePhotoInput"><i data-lucide="camera"></i><span>Alterar foto</span></label>
+          <input id="profilePhotoInput" type="file" accept="image/jpeg,image/png,image/webp" hidden>
+          <button id="removeProfilePhoto" class="profile-photo-remove is-hidden" type="button"><i data-lucide="trash-2"></i><span>Remover</span></button>
+        </div>
       </div>
     </aside>
   </div>

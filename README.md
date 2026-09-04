@@ -1,3 +1,22 @@
+# Painel Comercial UNIFAHE — V37
+
+## Ajustes desta versão
+- **Minha conta** foi simplificada para mostrar somente o essencial: foto, nome, time, setor, total faturado, total de boletos e total de matrículas.
+- Para vendedores, o perfil também mostra a remuneração mensal ligada a cada indicador: comissão de quitado, bonificação de boleto e comissão de matrículas, além da soma direta de comissão + bonificação do mês.
+- O histórico geral do perfil continua considerando somente vendas auditadas como **OK**.
+- Login agora começa pedindo apenas o **usuário**. Ao identificar o acesso, a foto/identidade surge com animação e o campo de senha aparece em sequência.
+- A foto usada no perfil passa a ser registrada também pelas chaves de acesso do usuário, permitindo que o login recupere a mesma foto no navegador antes da autenticação.
+- O modo de pré-visualização aceita `vendedor`, `gestor` e `auditoria` como usuários rápidos, além dos e-mails já existentes.
+- Perfis Firebase podem receber os campos opcionais `team`/`time` e `sector`/`setor`.
+
+# Painel Comercial UNIFAHE — V36
+
+## Ajustes desta versão
+- Atalhos da página Início agora ficam em carrossel horizontal.
+- Navegação por setas no desktop e gesto de arrastar/deslizar no mobile.
+- O próximo atalho permanece parcialmente visível no mobile para indicar continuidade.
+- Mantidas as páginas Início, Dashboard e as regras da V35.
+
 # Painel Comercial UNIFAHE — V35
 
 ## Ajustes desta versão
@@ -58,7 +77,7 @@ Crie estes usuários no Authentication com as senhas que você definir:
 | Giseli | giseli@unifahe.com.br | vendedor |
 | Nathália | nathalia@unifahe.com.br | vendedor |
 
-No painel o usuário não digita e-mail: escolhe o nome no select e informa apenas a senha.
+No painel o acesso começa pelo campo **Usuário**; após a identificação visual, o campo de senha é revelado. No Firebase, um usuário sem `@` é normalizado para o domínio `@unifahe.com.br`.
 
 ## 2. Crie o Firestore
 

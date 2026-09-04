@@ -48,6 +48,8 @@ export async function loadProfile(firebaseUser = auth.currentUser) {
     email: firebaseUser.email || data.email || '',
     name: data.name || firebaseUser.email || 'Usuário',
     role,
+    team: data.team || data.time || '',
+    sector: data.sector || data.setor || 'Comercial',
     active: data.active !== false
   };
   return activeProfile;

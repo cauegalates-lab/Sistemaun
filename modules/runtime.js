@@ -15,6 +15,8 @@ export const PREVIEW_USERS = {
     email: 'vendedor@unifahe.com.br',
     name: 'Cauê Galates',
     role: 'vendedor',
+    team: 'Evolution',
+    sector: 'Comercial',
     active: true,
     preview: true
   },
@@ -25,6 +27,8 @@ export const PREVIEW_USERS = {
     email: 'gestor@unifahe.com.br',
     name: 'Gestor UNIFAHE',
     role: 'gestor',
+    team: 'Gestão Comercial',
+    sector: 'Comercial',
     active: true,
     preview: true
   },
@@ -35,24 +39,42 @@ export const PREVIEW_USERS = {
     email: 'auditoria@unifahe.com.br',
     name: 'Auditoria UNIFAHE',
     role: 'auditoria',
+    team: 'Auditoria',
+    sector: 'Comercial',
     active: true,
     preview: true
   }
 };
 
-export function authenticatePreview(email, password) {
-  const key = String(email || '').trim().toLowerCase();
-  const user = PREVIEW_USERS[key];
-  if (!user || user.password !== password) throw new Error('E-mail ou senha inválidos.');
-  const { password: _password, ...profile } = user;
+const PREVIEW_ALIASES = {
+  'vendedor': 'vendedor@unifahe.com.br',
+  'caue': 'vendedor@unifahe.com.br',
+  'cauê': 'vendedor@unifahe.com.br',
+  'gestor': 'gestor@unifahe.com.br',
+  'auditoria': 'auditoria@unifahe.com.br'
+};
+
+export function resolvePreviewIdentity(identifier) {
+  const raw=String(identifier||'').trim().toLowerCase();
+  const email=PREVIEW_ALIASES[raw] || raw;
+  const user=PREVIEW_USERS[email];
+  if(!user) return null;
+  const { password:_password, ...profile }=user;
+  return { ...profile, loginEmail:email };
+}
+
+export function authenticatePreview(identifier, password) {
+  const identity=resolvePreviewIdentity(identifier);
+  if(!identity) throw new Error('Usuário ou senha inválidos.');
+  const source=PREVIEW_USERS[identity.loginEmail];
+  if(source.password!==password) throw new Error('Usuário ou senha inválidos.');
+  const { loginEmail:_loginEmail, ...profile }=identity;
   return { ...profile };
 }
 
 export function previewCredentials(role) {
-  const email = role === 'gestor'
-    ? 'gestor@unifahe.com.br'
-    : role === 'auditoria'
-      ? 'auditoria@unifahe.com.br'
-      : 'vendedor@unifahe.com.br';
-  return { email, password: PREVIEW_USERS[email].password };
+  const identifier=role === 'gestor' ? 'gestor' : role === 'auditoria' ? 'auditoria' : 'vendedor';
+  const identity=resolvePreviewIdentity(identifier);
+  return { identifier, email:identity.loginEmail, password:PREVIEW_USERS[identity.loginEmail].password };
 }
+
