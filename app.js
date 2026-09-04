@@ -45,7 +45,6 @@ let sellerDashboardMonth = todayISO().slice(0,7);
 let indicatorsMonth = todayISO().slice(0,7);
 let selectedIndicatorSeller = SELLERS[0] || '';
 let teamConfigsCache = [];
-let teamMemberPhotoUrls = [];
 let teamLogoObjectUrls = [];
 let teamLogoUrlById = new Map();
 
@@ -483,6 +482,7 @@ function renderPage(id){
   closeModal();
   if(id!=='times') clearTeamVisualUrls();
   if(currentUser.role==='auditoria' && id!=='vendas') id='vendas';
+  content.classList.toggle('teams-view',id==='times');
   currentPage=id;
   document.querySelectorAll('.nav-item[data-page]').forEach(el=>el.classList.toggle('active',el.dataset.page===id || (id==='fca-semanal'&&el.dataset.page==='fca')));
   document.querySelectorAll('.nav-submenu-item[data-page]').forEach(el=>el.classList.toggle('active',el.dataset.page===id));
@@ -530,14 +530,25 @@ function teamMemberRows(config,month){
 function teamAccentIcon(config){
   return ({goat:'crown',winx:'sparkles',evolution:'trending-up',elite:'gem',predadores:'shield',invictus:'flame',alfas:'star',alphas:'zap'})[config.id]||'users-round';
 }
+const TEAM_STATIC_LOGOS={
+  alfas:'./assets/team-logos/alfas.webp',
+  goat:'./assets/team-logos/goat.webp',
+  winx:'./assets/team-logos/winx.webp',
+  alphas:'./assets/team-logos/alphas.webp',
+  evolution:'./assets/team-logos/evolution.webp',
+  elite:'./assets/team-logos/elite.webp',
+  predadores:'./assets/team-logos/predadores.webp',
+  invictus:'./assets/team-logos/invictus.webp'
+};
+function defaultTeamLogoUrl(config={}){return TEAM_STATIC_LOGOS[config.id]||'';}
 function teamLogoMarkup(config,logoUrl='',size='card'){
-  if(logoUrl) return `<span class="team-logo team-logo-${size}"><img src="${escapeHTML(logoUrl)}" alt="Logo do time ${escapeHTML(config.name)}"></span>`;
+  const resolved=logoUrl||defaultTeamLogoUrl(config);
+  if(resolved) return `<span class="team-logo team-logo-${size}"><img src="${escapeHTML(resolved)}" alt="Logo do time ${escapeHTML(config.name)}"></span>`;
   return `<span class="team-logo team-logo-${size} is-placeholder team-accent-${escapeHTML(config.accent||'blue')}"><i data-lucide="${teamAccentIcon(config)}"></i></span>`;
 }
 function clearTeamVisualUrls(){
-  teamMemberPhotoUrls.forEach(url=>{if(String(url).startsWith('blob:'))URL.revokeObjectURL(url);});
   teamLogoObjectUrls.forEach(url=>{if(String(url).startsWith('blob:'))URL.revokeObjectURL(url);});
-  teamMemberPhotoUrls=[];teamLogoObjectUrls=[];teamLogoUrlById.clear();
+  teamLogoObjectUrls=[];teamLogoUrlById.clear();
 }
 async function loadTeamLogos(configs){
   teamLogoUrlById.clear();
@@ -548,74 +559,115 @@ async function loadTeamLogos(configs){
     }catch{}
   }
 }
-async function hydrateTeamMemberPhotos(){
-  const targets=[...content.querySelectorAll('[data-team-member-photo]')];
-  await Promise.all(targets.map(async target=>{
-    const name=target.dataset.teamMemberPhoto;
-    let blob=null;
-    try{blob=await ProfilePhotoStore.get(name);}catch{}
-    if(!blob||!document.body.contains(target)) return;
-    const url=URL.createObjectURL(blob);teamMemberPhotoUrls.push(url);
-    target.innerHTML=`<img src="${url}" alt="Foto de ${escapeHTML(name)}">`;
-  }));
-}
 function teamCardMarkup(config,month,{manager=false}={}){
   const memberRows=teamMemberRows(config,month);
   const total=memberRows.reduce((sum,item)=>sum+item.value,0);
   const logo=teamLogoUrlById.get(config.id)||'';
   const hasMembers=memberRows.length>0;
-  return `<article class="team-card team-accent-${escapeHTML(config.accent||'blue')}">
-    <header class="team-card-head">
-      <div class="team-card-brand">${teamLogoMarkup(config,logo)}<div><span class="section-kicker">TIME</span><h3>${escapeHTML(config.name)}</h3><p>${escapeHTML(teamMetricLabel(config))}</p></div></div>
-      ${manager?`<button type="button" class="team-config-button" data-config-team="${escapeHTML(config.id)}"><i data-lucide="settings-2"></i><span>Configurar</span></button>`:''}
+  return `<article class="team-card team-card-compact team-accent-${escapeHTML(config.accent||'blue')}">
+    <header class="team-card-compact-head">
+      ${teamLogoMarkup(config,logo)}
+      <div class="team-card-compact-title"><h3>${escapeHTML(config.name)}</h3><span>${escapeHTML(teamMetricLabel(config))}</span></div>
+      <div class="team-card-compact-total"><small>RESULTADO</small><strong>${formatTeamMetric(config,total)}</strong></div>
     </header>
-    <div class="team-score-strip">
-      <div><span>RESULTADO DO MÊS</span><strong>${formatTeamMetric(config,total)}</strong></div>
-      <div><span>CAPITÃO</span><strong>${config.captain?escapeHTML(config.captain):'Não definido'}</strong></div>
+    <div class="team-card-compact-meta">
+      <span class="team-captain-line"><i data-lucide="crown"></i>${config.captain?escapeHTML(config.captain):'Capitão não definido'}</span>
+      <span>${memberRows.length} ${memberRows.length===1?'integrante':'integrantes'}</span>
     </div>
-    <div class="team-members-head"><span>Integrante</span><span>${escapeHTML(config.indicator==='ponto'?'Pontos':config.measure==='valor'?'Resultado':'Quantidade')}</span></div>
-    <div class="team-members-list">
-      ${hasMembers?memberRows.map((member,index)=>`<div class="team-member-row ${member.name===config.captain?'is-captain':''}">
-        <span class="team-member-rank">${String(index+1).padStart(2,'0')}</span>
-        <span class="team-member-photo" data-team-member-photo="${escapeHTML(member.name)}">${escapeHTML(userInitials(member.name))}</span>
+    <div class="team-members-list team-members-list-compact">
+      ${hasMembers?memberRows.map(member=>`<div class="team-member-row team-member-row-compact ${member.name===config.captain?'is-captain':''}">
         <div class="team-member-name"><strong>${escapeHTML(member.name)}</strong>${member.name===config.captain?'<small><i data-lucide="crown"></i> Capitão</small>':''}</div>
         <strong class="team-member-value">${formatTeamMetric(config,member.value)}</strong>
-      </div>`).join(''):`<div class="team-empty-members"><i data-lucide="user-plus"></i><div><strong>Nenhum integrante configurado</strong><span>${manager?'Use Configurar para montar este time.':'A composição deste time ainda não foi definida pelo gestor.'}</span></div></div>`}
+      </div>`).join(''):`<div class="team-empty-members team-empty-members-compact"><span>${manager?'Nenhum integrante':'Time ainda sem integrantes'}</span></div>`}
     </div>
   </article>`;
 }
+function defaultTeamConfig(team){
+  return {
+    ...team,
+    captain:'',
+    members: team.id==='evolution' ? ['Cauê Galates'] : [],
+    indicator:'faturado',
+    measure:'valor',
+    logo_path:'',
+    updated_at:''
+  };
+}
+function fallbackTeamsForCurrentUser(){
+  if(currentUser.role==='gestor') return TEAM_DEFINITIONS.map(defaultTeamConfig);
+  const teamName=String(currentUser.team||currentUser.time||'').trim().toLowerCase();
+  const match=TEAM_DEFINITIONS.find(team=>team.name.toLowerCase()===teamName);
+  return match ? [{...defaultTeamConfig(match),members:[currentUser.name]}] : [];
+}
+function renderTeamsLayout(configs,{manager,month,loading=false,notice=''}={}){
+  teamConfigsCache=configs;
+  const monthLabel=new Intl.DateTimeFormat('pt-BR',{month:'long',year:'numeric'}).format(new Date(`${month}-01T12:00:00`));
+  content.innerHTML=`
+    <section class="teams-overview ${manager?'is-manager':'is-seller'}">
+      <div class="teams-minimal-head">
+        <div><h2>Times</h2><span>${monthLabel}</span></div>
+        ${manager?`<button type="button" class="primary-action teams-config-all" data-config-all-teams><i data-lucide="settings-2"></i>Configurar times</button>`:''}
+      </div>
+      ${notice?`<div class="teams-inline-notice"><i data-lucide="info"></i><span>${escapeHTML(notice)}</span></div>`:''}
+      <section class="teams-grid ${manager?'manager-grid':'seller-grid'}">
+        ${configs.length
+          ? configs.map(config=>teamCardMarkup(config,month,{manager})).join('')
+          : `<div class="teams-no-team"><i data-lucide="users-round"></i><h3>Seu time ainda não foi configurado</h3><p>Quando o gestor incluir você em um time, ele aparecerá aqui automaticamente.</p></div>`}
+      </section>
+      ${loading?'<span class="teams-loading-dot" aria-label="Sincronizando"></span>':''}
+    </section>`;
+  content.querySelector('[data-config-all-teams]')?.addEventListener('click',()=>openTeamConfigModal(teamConfigsCache[0]?.id||TEAM_DEFINITIONS[0]?.id));
+  refreshIcons();
+}
+
 async function renderTeams(){
   destroyCharts();
   clearTeamVisualUrls();
+
   const renderToken=Symbol('teams');
   renderTeams.activeToken=renderToken;
-  content.innerHTML=`<section class="teams-page-head"><div><span class="eyebrow">OPERAÇÃO COMERCIAL</span><h2>Times</h2><p>${currentUser.role==='gestor'?'Acompanhe os times, seus integrantes e o indicador definido para cada disputa.':'Acompanhe o desempenho do seu time e sua posição entre os integrantes.'}</p></div><div class="teams-month-pill"><i data-lucide="calendar-days"></i><span>${new Intl.DateTimeFormat('pt-BR',{month:'long',year:'numeric'}).format(new Date(`${todayISO().slice(0,7)}-01T12:00:00`))}</span></div></section><section class="teams-loading"><i data-lucide="loader-circle" class="spin"></i><span>Carregando times...</span></section>`;
-  refreshIcons();
+  const month=todayISO().slice(0,7);
+  const manager=currentUser.role==='gestor';
+
+  // Os times aparecem imediatamente. A persistência apenas substitui os
+  // padrões quando terminar de carregar, evitando página vazia.
+  let configs=fallbackTeamsForCurrentUser();
+  renderTeamsLayout(configs,{manager,month,loading:true});
+
   try{
-    let configs=currentUser.role==='gestor'?await TeamsRepository.list():await TeamsRepository.listForSeller(currentUser.name);
-    if(renderTeams.activeToken!==renderToken||currentPage!=='times')return;
-    if(currentUser.role==='vendedor'&&!configs.length&&currentUser.team){
-      const fallback=TEAM_DEFINITIONS.find(team=>team.name.toLowerCase()===String(currentUser.team).toLowerCase());
-      if(fallback) configs=[{...fallback,captain:'',members:[currentUser.name],indicator:'faturado',measure:'valor',logo_path:''}];
+    const persisted=manager
+      ? await TeamsRepository.list()
+      : await TeamsRepository.listForSeller(currentUser.name);
+
+    if(renderTeams.activeToken!==renderToken||currentPage!=='times') return;
+
+    if(manager){
+      configs=Array.isArray(persisted)&&persisted.length
+        ? persisted
+        : TEAM_DEFINITIONS.map(defaultTeamConfig);
+    }else{
+      configs=Array.isArray(persisted)&&persisted.length
+        ? persisted
+        : fallbackTeamsForCurrentUser();
     }
-    teamConfigsCache=configs;
+
     await loadTeamLogos(configs);
-    if(renderTeams.activeToken!==renderToken||currentPage!=='times')return;
-    const month=todayISO().slice(0,7);
-    const manager=currentUser.role==='gestor';
-    content.innerHTML=`
-      <section class="teams-page-head">
-        <div><span class="eyebrow">${manager?'GESTÃO DE TIMES':'MEU TIME'}</span><h2>Times</h2><p>${manager?'Cada time pode ter capitão, composição e indicador próprios. O resultado considera somente vendas com auditoria OK.':'Seu resultado é atualizado pelas vendas aprovadas e pelo indicador definido pelo gestor.'}</p></div>
-        <div class="teams-month-pill"><i data-lucide="calendar-days"></i><span>${new Intl.DateTimeFormat('pt-BR',{month:'long',year:'numeric'}).format(new Date(`${month}-01T12:00:00`))}</span></div>
-      </section>
-      ${manager?`<section class="teams-manager-note"><span><i data-lucide="sliders-horizontal"></i></span><div><strong>Configuração independente por time</strong><p>Defina integrantes, capitão e se o ranking considera faturado, boletos ou pontos — por valor ou quantidade.</p></div></section>`:''}
-      <section class="teams-grid ${manager?'manager-grid':'seller-grid'}">${configs.length?configs.map(config=>teamCardMarkup(config,month,{manager})).join(''):`<div class="teams-no-team"><i data-lucide="users-round"></i><h3>Seu time ainda não foi configurado</h3><p>Quando o gestor incluir você em um time, ele aparecerá aqui automaticamente.</p></div>`}</section>`;
-    content.querySelectorAll('[data-config-team]').forEach(button=>button.addEventListener('click',()=>openTeamConfigModal(button.dataset.configTeam)));
-    refreshIcons();
-    hydrateTeamMemberPhotos();
+    if(renderTeams.activeToken!==renderToken||currentPage!=='times') return;
+
+    renderTeamsLayout(configs,{manager,month});
   }catch(error){
-    if(renderTeams.activeToken!==renderToken)return;
-    content.innerHTML=`<section class="page-intro"><div><span class="eyebrow">TIMES</span><h2>Não foi possível carregar</h2><p>${escapeHTML(error.message||'Tente novamente em instantes.')}</p></div></section>`;
+    if(renderTeams.activeToken!==renderToken||currentPage!=='times') return;
+
+    // Mesmo se Firebase/IndexedDB falhar, o gestor continua vendo e podendo
+    // acessar a estrutura dos oito times em vez de receber uma tela vazia.
+    configs=configs.length?configs:fallbackTeamsForCurrentUser();
+    renderTeamsLayout(configs,{
+      manager,
+      month,
+      notice: manager
+        ? 'Os times foram exibidos com a configuração padrão. A sincronização não respondeu neste momento.'
+        : 'Não foi possível sincronizar o time agora. Exibindo as informações locais disponíveis.'
+    });
   }
 }
 async function openTeamConfigModal(teamId){
@@ -624,7 +676,8 @@ async function openTeamConfigModal(teamId){
   if(!config)return;
   const logo=teamLogoUrlById.get(config.id)||'';
   openModal(`<div class="mini-modal team-config-modal">
-    <div class="modal-head"><div><span class="section-kicker">CONFIGURAÇÃO DO TIME</span><h3>${escapeHTML(config.name)}</h3><p>O resultado do time será recalculado automaticamente com as vendas OK.</p></div><button class="modal-close" data-close-modal><i data-lucide="x"></i></button></div>
+    <div class="modal-head"><div><span class="section-kicker">CONFIGURAR TIMES</span><h3>${escapeHTML(config.name)}</h3><p>Escolha um time abaixo e ajuste composição, capitão e indicador.</p></div><button class="modal-close" data-close-modal><i data-lucide="x"></i></button></div>
+    <div class="team-config-switcher">${TEAM_DEFINITIONS.map(team=>`<button type="button" class="team-config-switch ${team.id===config.id?'active':''}" data-switch-team="${escapeHTML(team.id)}">${escapeHTML(team.name)}</button>`).join('')}</div>
     <form id="teamConfigForm" class="team-config-form">
       <div class="team-config-top">
         <div class="team-logo-editor-wrap">${teamLogoMarkup(config,logo,'editor')}<label class="secondary-action team-logo-upload"><i data-lucide="image-up"></i>Alterar logo<input type="file" name="logo" accept="image/png,image/jpeg,image/webp" hidden></label>${logo?'<button type="button" class="team-logo-remove" data-remove-team-logo><i data-lucide="trash-2"></i>Remover</button>':''}</div>
@@ -636,13 +689,14 @@ async function openTeamConfigModal(teamId){
       </div>
       <div class="team-members-config">
         <div class="team-members-config-head"><div><span class="section-kicker">INTEGRANTES</span><h4>Monte o time</h4></div><label class="team-member-search"><i data-lucide="search"></i><input type="search" placeholder="Buscar vendedor" data-team-member-search></label></div>
-        <div class="team-member-options">${SELLERS.map(name=>`<label class="team-member-option" data-member-option="${escapeHTML(name.toLowerCase())}"><input type="checkbox" name="members" value="${escapeHTML(name)}" ${(config.members||[]).includes(name)?'checked':''}><span class="team-member-option-avatar">${escapeHTML(userInitials(name))}</span><strong>${escapeHTML(name)}</strong><i data-lucide="check"></i></label>`).join('')}</div>
+        <div class="team-member-options">${SELLERS.map(name=>`<label class="team-member-option team-member-option-name-only" data-member-option="${escapeHTML(name.toLowerCase())}"><input type="checkbox" name="members" value="${escapeHTML(name)}" ${(config.members||[]).includes(name)?'checked':''}><strong>${escapeHTML(name)}</strong><i data-lucide="check"></i></label>`).join('')}</div>
         <p class="team-config-note"><i data-lucide="info"></i>Ao mover um vendedor para este time, ele será removido automaticamente dos outros times para não ficar duplicado.</p>
       </div>
       <div class="modal-actions"><button type="button" class="secondary-action" data-close-modal>Cancelar</button><button type="submit" class="primary-action"><i data-lucide="save"></i>Salvar time</button></div>
     </form>
   </div>`);
   const form=$('#teamConfigForm');
+  document.querySelectorAll('[data-switch-team]').forEach(button=>button.addEventListener('click',()=>{if(button.dataset.switchTeam===config.id)return;closeModal();openTeamConfigModal(button.dataset.switchTeam);}));
   const indicator=form.elements.indicator,measure=form.elements.measure,help=form.querySelector('[data-measure-help]');
   indicator.addEventListener('change',()=>{
     const points=indicator.value==='ponto';measure.disabled=points;if(points)measure.value='quantidade';help.textContent=points?'Cartão = 2 pontos; Boleto e Sem taxa = 1 ponto por matrícula.':'Escolha como o resultado será exibido.';

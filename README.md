@@ -301,3 +301,18 @@ As logos de produção ficam em `team-logos/{teamId}/logo` no Firebase Storage. 
 
 ### Início
 A home ganhou mais identidade visual sem virar um segundo dashboard: faixa de boas-vindas com azul/laranja, resumo mensal com acentos diferentes por indicador, atalhos com faixa de cor e bloco de operação do dia mais destacado. O atalho de **Times** também foi incluído no carrossel de Gestor e Vendedor.
+
+
+## V38 corrigida — Times
+- A área Times renderiza imediatamente os oito times para o Gestor, mesmo antes da sincronização.
+- Se a persistência falhar ou estiver vazia, a interface usa a configuração padrão em vez de ficar sem conteúdo.
+- O Vendedor recebe o time associado ao próprio perfil e a configuração persistida quando disponível.
+
+
+## V38 — Times compactos
+- Gestor: 8 times em grade 4x2, pensada para caber em uma única tela desktop.
+- Topo reduzido ao essencial: título, mês e botão único “Configurar times”.
+- Cards usam logos estáticas recuperadas do material de times já salvo; logos personalizadas continuam podendo substituir as estáticas.
+- Integrantes aparecem somente por nome e resultado, sem foto.
+- A configuração de todos os times parte de um único botão e usa seletor interno para trocar de equipe.
+- Em tablet/mobile a página volta ao fluxo com rolagem normal para preservar legibilidade.
