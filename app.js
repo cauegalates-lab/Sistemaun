@@ -12,6 +12,7 @@ import { PREVIEW_LOGIN_ENABLED, authenticatePreview, previewCredentials } from '
 
 const COMMON_ITEMS = [
   { id:'inicio', label:'Início', icon:'house', section:'Principal' },
+  { id:'dashboard', label:'Dashboard', icon:'layout-dashboard', section:'Principal' },
   { id:'vendas', label:'Vendas', icon:'badge-dollar-sign', section:'Operação' },
   { id:'times', label:'Times', icon:'users-round', section:'Operação' },
   { id:'fca', label:'FCA', icon:'clipboard-check', section:'Operação' },
@@ -50,6 +51,11 @@ const content=$('#content'), userName=$('#userName'), userRole=$('#userRole'), u
 const mobileOverlay=$('#mobileOverlay'), modalHost=$('#modalHost');
 const profileTrigger=$('#profileTrigger'), profileDrawer=$('#profileDrawer'), profileOverlay=$('#profileOverlay'), profileCloseButton=$('#profileCloseButton');
 const profilePhotoInput=$('#profilePhotoInput'), profilePhotoPreview=$('#profilePhotoPreview'), removeProfilePhoto=$('#removeProfilePhoto');
+const sidebarTooltip=document.createElement('div');
+sidebarTooltip.className='sidebar-hover-tooltip';
+sidebarTooltip.hidden=true;
+sidebarTooltip.setAttribute('role','tooltip');
+document.body.append(sidebarTooltip);
 
 function refreshIcons(){ if(window.lucide) window.lucide.createIcons({attrs:{'stroke-width':1.9}}); }
 function toast(message, type='ok'){
@@ -112,7 +118,26 @@ $('#togglePassword').addEventListener('click',()=>{
   const show=passwordInput.type==='password'; passwordInput.type=show?'text':'password';
   $('#togglePassword').innerHTML=`<i data-lucide="${show?'eye-off':'eye'}"></i>`; refreshIcons();
 });
+function hideSidebarTooltip(){ sidebarTooltip.hidden=true; }
+function showSidebarTooltip(target){
+  if(!target?.dataset?.tooltip || !sidebar.classList.contains('is-collapsed') || window.matchMedia('(max-width:900px)').matches){ hideSidebarTooltip(); return; }
+  const rect=target.getBoundingClientRect();
+  sidebarTooltip.textContent=target.dataset.tooltip;
+  sidebarTooltip.hidden=false;
+  sidebarTooltip.style.left=`${Math.round(rect.right+11)}px`;
+  sidebarTooltip.style.top=`${Math.round(rect.top+(rect.height/2))}px`;
+}
+function bindSidebarTooltip(target){
+  if(!target || target.dataset.tooltipBound==='1') return;
+  target.dataset.tooltipBound='1';
+  target.addEventListener('pointerenter',()=>showSidebarTooltip(target));
+  target.addEventListener('pointerleave',hideSidebarTooltip);
+  target.addEventListener('focus',()=>showSidebarTooltip(target));
+  target.addEventListener('blur',hideSidebarTooltip);
+}
+
 function setSidebarCollapsed(collapsed){
+  hideSidebarTooltip();
   sidebar.classList.toggle('is-collapsed',Boolean(collapsed));
   if(window.matchMedia('(min-width:901px)').matches){
     localStorage.setItem('unifaheSidebarCollapsed',collapsed?'1':'0');
@@ -145,6 +170,8 @@ removeProfilePhoto.addEventListener('click',async()=>{
   try{ await ProfilePhotoStore.remove(currentUser.id || currentUser.name); await refreshUserPhoto(); toast('Foto de perfil removida.'); }
   catch{ toast('Não foi possível remover a foto.','error'); }
 });
+$('#logoutButton').dataset.tooltip='Sair';
+bindSidebarTooltip($('#logoutButton'));
 $('#logoutButton').addEventListener('click',signOut);
 
 async function signIn(user){
@@ -174,9 +201,10 @@ function buildMenu(){
     const wrap=document.createElement('div');
     wrap.className=`nav-item-wrap${item.id==='fca'?' has-submenu':''}`;
     const btn=document.createElement('button');
-    btn.className=`nav-item${item.id===currentPage?' active':''}`; btn.dataset.page=item.id;
+    btn.className=`nav-item${item.id===currentPage?' active':''}`; btn.dataset.page=item.id; btn.dataset.tooltip=item.label;
     btn.innerHTML=`<span class="nav-icon"><i data-lucide="${item.icon}"></i></span><span class="nav-label">${item.label}</span>${item.id==='fca'?'<span class="nav-submenu-caret"><i data-lucide="chevron-right"></i></span>':''}`;
-    btn.onclick=()=>{renderPage(item.id);closeMobileMenu();}; wrap.append(btn);
+    bindSidebarTooltip(btn);
+    btn.onclick=()=>{hideSidebarTooltip();renderPage(item.id);closeMobileMenu();}; wrap.append(btn);
     if(item.id==='fca'){
       const submenu=document.createElement('div'); submenu.className='nav-submenu';
       submenu.innerHTML=`<button type="button" class="nav-submenu-item" data-page="fca-semanal"><span><i data-lucide="calendar-check-2"></i></span><strong>Painel semanal de performance</strong></button>`;
@@ -188,13 +216,84 @@ function buildMenu(){
   refreshIcons();
 }
 
+function homeMetric(icon,label,value,helper=''){
+  return `<div class="home-metric"><span class="home-metric-icon"><i data-lucide="${icon}"></i></span><div><small>${label}</small><strong>${value}</strong>${helper?`<span>${helper}</span>`:''}</div></div>`;
+}
+function homeShortcut(page,icon,title,description,accent=''){
+  return `<button type="button" class="home-shortcut ${accent}" data-home-page="${page}"><span><i data-lucide="${icon}"></i></span><div><strong>${title}</strong><small>${description}</small></div><i data-lucide="arrow-up-right"></i></button>`;
+}
+function renderHome(){
+  destroyCharts();
+  const today=todayISO();
+  const month=today.slice(0,7);
+  const sellerOnly=currentUser.role==='vendedor';
+  const scoped=sellerOnly?salesCache.filter(row=>row.seller_name===currentUser.name):salesCache;
+  const approvedMonth=scoped.filter(row=>row.audit_status==='ok' && String(row.sale_date||'').startsWith(month));
+  const approvedToday=approvedMonth.filter(row=>row.sale_date===today);
+  const pending=scoped.filter(row=>row.audit_status==='pending').length;
+  const revenue=approvedMonth.reduce((sum,row)=>sum+Number(row.total_value||0),0);
+  const enrollments=approvedMonth.reduce((sum,row)=>sum+Number(row.course_quantity||0),0);
+  const boletos=approvedMonth.filter(row=>row.payment_type==='boleto').length;
+  const todayRevenue=approvedToday.reduce((sum,row)=>sum+Number(row.total_value||0),0);
+  const activeSellers=new Set(approvedToday.map(row=>row.seller_name).filter(Boolean)).size;
+  const firstName=escapeHTML(String(currentUser.name||'').split(' ')[0]||currentUser.name);
+  const monthLabel=new Intl.DateTimeFormat('pt-BR',{month:'long',year:'numeric'}).format(new Date(`${month}-01T12:00:00`));
+  const roleText=sellerOnly?'Seu ponto de partida para acompanhar produção, metas e rotina comercial.':'Visão rápida da operação e atalhos para os principais controles do comercial.';
+  const priorityTitle=pending?`${pending} ${pending===1?'venda aguarda':'vendas aguardam'} auditoria`:'Auditoria em dia';
+  const priorityText=pending?(sellerOnly?'Acompanhe a validação para que essas vendas entrem nos seus indicadores.':'Há lançamentos pendentes de validação antes de entrarem nos dashboards.'):(sellerOnly?'Suas vendas lançadas não têm pendências de auditoria neste momento.':'Não há vendas pendentes de auditoria neste momento.');
+  const shortcuts=sellerOnly?[
+    ['dashboard','layout-dashboard','Meu dashboard','Metas, ritmo e projeções','orange'],
+    ['vendas','badge-dollar-sign','Vendas','Consultar e lançar vendas',''],
+    ['fca-semanal','calendar-check-2','Painel semanal','Meta e tarefas da semana','blue'],
+    ['comissoes','circle-dollar-sign','Comissões','Acompanhar FCA e remuneração','']
+  ]:[
+    ['dashboard','layout-dashboard','Dashboard geral','Visão consolidada do comercial','orange'],
+    ['vendas','badge-dollar-sign','Vendas','Operação e auditoria das vendas',''],
+    ['indicadores','gauge','Indicadores','Metas e dashboards dos vendedores','blue'],
+    ['fca-semanal','calendar-check-2','Painel semanal','Performance e relatórios da equipe',''],
+    ['comissoes','circle-dollar-sign','Comissões','Faixas, bônus e bonificações','']
+  ];
+  content.innerHTML=`
+    <section class="home-head">
+      <div><span class="eyebrow">INÍCIO</span><h2>Olá, ${firstName}</h2><p>${roleText}</p></div>
+      <div class="home-date"><span>MÊS ATUAL</span><strong>${monthLabel}</strong><small>${formatDateBR(today)}</small></div>
+    </section>
+    <section class="home-overview" aria-label="Resumo do mês">
+      <div class="home-overview-title"><span class="section-kicker">RESUMO DO MÊS</span><h3>${sellerOnly?'Minha produção validada':'Produção validada da equipe'}</h3><p>Somente vendas com status OK entram nestes números.</p></div>
+      <div class="home-metrics-grid">
+        ${homeMetric('banknote','Faturado',money.format(revenue),'vendas OK')}
+        ${homeMetric('graduation-cap','Matrículas',String(enrollments),'no mês')}
+        ${homeMetric('barcode','Boletos',String(boletos),'no mês')}
+        ${homeMetric('badge-check','Vendas OK',String(approvedMonth.length),'validadas')}
+      </div>
+    </section>
+    <section class="home-main-grid">
+      <div class="home-shortcuts-area">
+        <div class="home-section-heading"><div><span class="section-kicker">ATALHOS</span><h3>Acesso rápido</h3></div><span>Entre direto no que precisa acompanhar.</span></div>
+        <div class="home-shortcuts-grid">${shortcuts.map(item=>homeShortcut(...item)).join('')}</div>
+      </div>
+      <aside class="home-today-panel">
+        <div class="home-section-heading compact"><div><span class="section-kicker">HOJE</span><h3>Operação do dia</h3></div></div>
+        <div class="home-today-numbers">
+          <div><span>Faturado OK hoje</span><strong>${money.format(todayRevenue)}</strong></div>
+          <div><span>Vendas OK hoje</span><strong>${approvedToday.length}</strong></div>
+          ${sellerOnly?`<div><span>Pendentes de auditoria</span><strong>${pending}</strong></div>`:`<div><span>Vendedores com venda OK</span><strong>${activeSellers}</strong></div>`}
+        </div>
+        <div class="home-priority ${pending?'attention':'clear'}"><span><i data-lucide="${pending?'circle-alert':'circle-check'}"></i></span><div><strong>${priorityTitle}</strong><p>${priorityText}</p></div></div>
+      </aside>
+    </section>`;
+  content.querySelectorAll('[data-home-page]').forEach(button=>button.addEventListener('click',()=>renderPage(button.dataset.homePage)));
+  refreshIcons();
+}
+
 function renderPage(id){
   closeModal();
   if(currentUser.role==='auditoria' && id!=='vendas') id='vendas';
   currentPage=id;
   document.querySelectorAll('.nav-item[data-page]').forEach(el=>el.classList.toggle('active',el.dataset.page===id || (id==='fca-semanal'&&el.dataset.page==='fca')));
   document.querySelectorAll('.nav-submenu-item[data-page]').forEach(el=>el.classList.toggle('active',el.dataset.page===id));
-  if(id==='inicio') return currentUser.role==='gestor'?renderDashboard({mode:'geral'}):renderSellerDashboard();
+  if(id==='inicio') return renderHome();
+  if(id==='dashboard') return currentUser.role==='gestor'?renderDashboard({mode:'geral'}):renderSellerDashboard();
   if(id==='vendas') return renderSales();
   if(id==='fca') return renderFCA();
   if(id==='fca-semanal') return renderWeeklyPerformance();
@@ -245,7 +344,7 @@ function renderSales(){
     ${auditMode?'':'<section id="saleFormPanel" class="sale-entry-panel is-collapsed"></section>'}
     <section class="sales-list-section">
       <div class="section-heading sales-list-heading">
-        <div class="records-copy"><span class="section-kicker">REGISTROS</span><h3>${auditMode?'Fila de auditoria':'Vendas lançadas'}</h3><p>${auditMode?'Use os status à esquerda e o comprovante à direita para conferir cada venda.':'Clique em uma linha para consultar os detalhes do lançamento.'}</p></div>
+        <div class="records-copy"><span class="section-kicker">REGISTROS</span><h3>${auditMode?'Fila de auditoria':'Vendas lançadas'}</h3><p>${auditMode?'Use os status à esquerda e o comprovante à direita para conferir cada venda.':'Passe o mouse sobre uma linha para consultar os detalhes do lançamento.'}</p></div>
         <div class="sales-filter-line" aria-label="Filtros de auditoria">
           ${salesStatusFilterButton('all','Todas',summary.count)}
           ${salesStatusFilterButton('pending','Pendentes',summary.pending)}

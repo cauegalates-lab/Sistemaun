@@ -1,3 +1,13 @@
+# Painel Comercial UNIFAHE — V35
+
+## Ajustes desta versão
+- Início virou uma central operacional separada do Dashboard para Gestor e Vendedor.
+- Dashboard ganhou item próprio no menu lateral.
+- Início mostra atalhos, resumo do mês validado, operação do dia e alertas de auditoria.
+- Menu lateral recolhido exibe o nome de cada item ao passar o ponteiro.
+- Ícones do menu recolhido ficam centralizados.
+- Mantidas as regras, integrações e módulos da V34.
+
 # Painel Comercial UNIFAHE — V34
 
 ## Acesso temporário para pré-visualização
