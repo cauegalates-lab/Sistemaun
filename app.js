@@ -7,10 +7,12 @@ import { ProfilePhotoStore, MAX_PROFILE_PHOTO_BYTES } from './modules/profile.js
 import { FcaRepository } from './modules/fca-repository.js';
 import { WeeklyPerformanceRepository } from './modules/weekly-performance-repository.js';
 import { GoalsRepository } from './modules/goals-repository.js';
+import { CommissionAdjustmentsRepository } from './modules/commission-adjustments-repository.js';
 import { TeamsRepository } from './modules/teams-repository.js';
 import { TeamLogoStore, MAX_TEAM_LOGO_BYTES } from './modules/team-logo-store.js';
-import { loginAccount, logoutAccount, watchSession } from './modules/firebase.js';
-import { PREVIEW_LOGIN_ENABLED, authenticatePreview, previewCredentials, resolvePreviewIdentity } from './modules/runtime.js';
+import { auth, loginAccount, logoutAccount, watchSession } from './modules/firebase.js';
+import { PREVIEW_LOGIN_ENABLED, authenticatePreview, resolvePreviewIdentity } from './modules/runtime.js';
+import { loadingState, errorState, emptyState, pageHeader } from './modules/ui.js';
 
 const COMMON_ITEMS = [
   { id:'inicio', label:'Início', icon:'house', section:'Principal' },
@@ -43,14 +45,16 @@ let weeklyPerformanceWeekStart = '';
 let weeklyPerformanceSeller = SELLERS[0] || '';
 let sellerDashboardMonth = todayISO().slice(0,7);
 let indicatorsMonth = todayISO().slice(0,7);
-let selectedIndicatorSeller = SELLERS[0] || '';
+let selectedIndicatorSeller = '';
 let teamConfigsCache = [];
 let teamLogoObjectUrls = [];
 let teamLogoUrlById = new Map();
+let teamMemberPhotoObjectUrls = [];
+let teamMemberPhotoUrlByName = new Map();
 
 const $ = s => document.querySelector(s);
 const loginView=$('#loginView'), appView=$('#appView'), loginForm=$('#loginForm'), loginError=$('#loginError');
-const emailInput=$('#email'), passwordInput=$('#password'), loginIdentity=$('#loginIdentity'), loginIdentityAvatar=$('#loginIdentityAvatar'), loginIdentityName=$('#loginIdentityName'), loginIdentityMeta=$('#loginIdentityMeta'), loginPasswordStep=$('#loginPasswordStep'), changeLoginUser=$('#changeLoginUser'), sidebar=$('#sidebar'), sidebarNav=$('#sidebarNav');
+const emailInput=$('#email'), passwordInput=$('#password'), firstAccessButton=$('#firstAccessButton'), forgotPasswordButton=$('#forgotPasswordButton'), firstAccessView=$('#firstAccessView'), passwordResetView=$('#passwordResetView'), firstAccessForm=$('#firstAccessForm'), passwordResetForm=$('#passwordResetForm'), loginIdentity=$('#loginIdentity'), loginIdentityAvatar=$('#loginIdentityAvatar'), loginIdentityName=$('#loginIdentityName'), loginIdentityMeta=$('#loginIdentityMeta'), loginPasswordStep=$('#loginPasswordStep'), changeLoginUser=$('#changeLoginUser'), loginPanel=document.querySelector('.login-panel'), sidebar=$('#sidebar'), sidebarNav=$('#sidebarNav');
 const content=$('#content'), userName=$('#userName'), userRole=$('#userRole'), userAvatar=$('#userAvatar');
 const mobileOverlay=$('#mobileOverlay'), modalHost=$('#modalHost');
 const profileTrigger=$('#profileTrigger'), profileDrawer=$('#profileDrawer'), profileOverlay=$('#profileOverlay'), profileCloseButton=$('#profileCloseButton');
@@ -63,6 +67,10 @@ sidebarTooltip.className='sidebar-hover-tooltip';
 sidebarTooltip.hidden=true;
 sidebarTooltip.setAttribute('role','tooltip');
 document.body.append(sidebarTooltip);
+const FIRST_ACCESS_DEVICE_KEY='unifahe.firstAccessCompleted';
+function firstAccessCompletedOnDevice(){ try{return localStorage.getItem(FIRST_ACCESS_DEVICE_KEY)==='1';}catch{return false;} }
+function syncFirstAccessButton(){ if(firstAccessButton) firstAccessButton.hidden=PREVIEW_LOGIN_ENABLED||firstAccessCompletedOnDevice(); }
+syncFirstAccessButton();
 
 function refreshIcons(){ if(window.lucide) window.lucide.createIcons({attrs:{'stroke-width':1.9}}); }
 function toast(message, type='ok'){
@@ -101,18 +109,23 @@ function hideLoginProgressiveStep({clearPassword=false}={}){
   clearLoginIdentityPhoto();
   loginPasswordStep.hidden=true;
   passwordInput.disabled=true;
-  loginIdentity.classList.remove('is-visible','is-identified');
+  loginIdentity.classList.remove('is-visible','is-identified','is-new-access');
   loginIdentity.classList.add('is-placeholder');
   loginForm.classList.remove('identity-ready');
   loginIdentityAvatar.innerHTML='<i data-lucide="user-round"></i>';
   loginIdentityName.textContent='Digite seu usuário';
   loginIdentityMeta.textContent='Sua foto aparecerá aqui';
   loginPasswordStep.classList.remove('is-visible');
+  firstAccessButton?.classList.remove('attention');
   if(clearPassword) passwordInput.value='';
   refreshIcons();
 }
 async function loadLoginIdentityPhoto(identity,identifier){
   clearLoginIdentityPhoto();
+  if(!PREVIEW_LOGIN_ENABLED && identity?.photo_url){
+    loginIdentityAvatar.innerHTML=`<img src="${escapeHTML(identity.photo_url)}" alt="Foto de ${escapeHTML(identity?.name||'usuário')}">`;
+    return;
+  }
   const keys=[identity?.id,identity?.uid,identity?.email,identifier,identity?.name].filter(Boolean);
   let blob=null;
   for(const key of keys){
@@ -122,40 +135,45 @@ async function loadLoginIdentityPhoto(identity,identifier){
   if(blob){
     loginIdentityPhotoUrl=URL.createObjectURL(blob);
     loginIdentityAvatar.innerHTML=`<img src="${loginIdentityPhotoUrl}" alt="Foto de ${escapeHTML(identity?.name||'usuário')}">`;
-  }else{
-    loginIdentityAvatar.textContent=userInitials(identity?.name||identifier||'Usuário');
-  }
+  }else loginIdentityAvatar.textContent=userInitials(identity?.name||identifier||'Usuário');
 }
+async function resolveProductionIdentity(raw){
+  try{
+    const response=await fetch(`/api/access-profile?login=${encodeURIComponent(raw)}`);
+    if(response.status===404) return null;
+    const payload=await response.json().catch(()=>({}));
+    if(!response.ok) throw new Error(payload.error||'Não foi possível localizar o acesso.');
+    return payload.profile||null;
+  }catch{return null;}
+}
+
 async function revealLoginProgressiveStep(){
   const raw=emailInput.value.trim();
   if(raw.length<2){ hideLoginProgressiveStep({clearPassword:true}); return; }
-  const identity=PREVIEW_LOGIN_ENABLED ? resolvePreviewIdentity(raw) : null;
+  const identity=PREVIEW_LOGIN_ENABLED ? resolvePreviewIdentity(raw) : await resolveProductionIdentity(raw);
   if(PREVIEW_LOGIN_ENABLED && !identity){ hideLoginProgressiveStep({clearPassword:false}); return; }
+  if(!PREVIEW_LOGIN_ENABLED && !identity){
+    clearLoginIdentityPhoto();
+    loginPasswordStep.hidden=true; passwordInput.disabled=true; loginForm.classList.remove('identity-ready');
+    loginIdentityAvatar.innerHTML='<i data-lucide="user-plus"></i>';
+    loginIdentityName.textContent='Primeiro acesso';
+    loginIdentityMeta.textContent='Cadastre seu usuário e senha para continuar';
+    loginIdentity.classList.remove('is-placeholder','is-identified'); loginIdentity.classList.add('is-visible','is-new-access');
+    firstAccessButton?.classList.add('attention'); refreshIcons(); return;
+  }
+  firstAccessButton?.classList.remove('attention');
   const fallbackName=raw.includes('@')?raw.split('@')[0].replace(/[._-]+/g,' '):raw;
-  const displayIdentity=identity||{
-    name:fallbackName.replace(/\b\w/g,char=>char.toUpperCase()),
-    role:'vendedor',
-    id:normalizeLoginIdentifier(raw),
-    email:normalizeLoginIdentifier(raw),
-    sector:'Comercial'
-  };
+  const displayIdentity=identity||{name:fallbackName.replace(/\b\w/g,char=>char.toUpperCase()),role:'vendedor',id:normalizeLoginIdentifier(raw),email:normalizeLoginIdentifier(raw),sector:'Comercial'};
   await loadLoginIdentityPhoto(displayIdentity,raw);
   if(emailInput.value.trim()!==raw) return;
   loginIdentityName.textContent=displayIdentity.name||'Usuário';
   const context=[loginRoleLabel(displayIdentity.role),displayIdentity.team||'',displayIdentity.sector||''].filter(Boolean).join(' · ');
   loginIdentityMeta.textContent=context||'Plataforma Comercial';
-  loginIdentity.classList.remove('is-placeholder');
-  loginIdentity.classList.add('is-identified');
-  loginForm.classList.add('identity-ready');
-  loginPasswordStep.hidden=false;
-  passwordInput.disabled=false;
-  requestAnimationFrame(()=>{
-    loginIdentity.classList.add('is-visible');
-    loginPasswordStep.classList.add('is-visible');
-    refreshIcons();
-    setTimeout(()=>{ if(loginForm.classList.contains('identity-ready')) passwordInput.focus(); },260);
-  });
+  loginIdentity.classList.remove('is-placeholder','is-new-access'); loginIdentity.classList.add('is-identified');
+  loginForm.classList.add('identity-ready'); loginPasswordStep.hidden=false; passwordInput.disabled=false;
+  requestAnimationFrame(()=>{loginIdentity.classList.add('is-visible');loginPasswordStep.classList.add('is-visible');refreshIcons();setTimeout(()=>{if(loginForm.classList.contains('identity-ready'))passwordInput.focus();},260);});
 }
+
 function scheduleLoginReveal(){
   clearTimeout(loginRevealTimer);
   loginError.textContent='';
@@ -172,7 +190,7 @@ function setAvatarVisual(element, imageUrl='') {
 async function refreshUserPhoto(){
   if(activeProfilePhotoUrl){ URL.revokeObjectURL(activeProfilePhotoUrl); activeProfilePhotoUrl=''; }
   let blob=null;
-  const keys=[currentUser?.id,currentUser?.uid,currentUser?.email,currentUser?.name].filter(Boolean);
+  const keys=PREVIEW_LOGIN_ENABLED?[currentUser?.id,currentUser?.uid,currentUser?.email,currentUser?.name].filter(Boolean):[currentUser?.uid].filter(Boolean);
   for(const key of keys){
     try{ blob=await ProfilePhotoStore.get(key); }catch{}
     if(blob) break;
@@ -182,11 +200,11 @@ async function refreshUserPhoto(){
   removeProfilePhoto.classList.toggle('is-hidden',!blob);
 }
 async function saveUserPhotoAliases(file){
-  const keys=[currentUser?.id,currentUser?.uid,currentUser?.email,currentUser?.name].filter(Boolean);
+  const keys=PREVIEW_LOGIN_ENABLED?[currentUser?.id,currentUser?.uid,currentUser?.email,currentUser?.name].filter(Boolean):[currentUser?.uid].filter(Boolean);
   for(const key of [...new Set(keys)]) await ProfilePhotoStore.save(key,file);
 }
 async function removeUserPhotoAliases(){
-  const keys=[currentUser?.id,currentUser?.uid,currentUser?.email,currentUser?.name].filter(Boolean);
+  const keys=PREVIEW_LOGIN_ENABLED?[currentUser?.id,currentUser?.uid,currentUser?.email,currentUser?.name].filter(Boolean):[currentUser?.uid].filter(Boolean);
   await Promise.all([...new Set(keys)].map(key=>ProfilePhotoStore.remove(key).catch(()=>{})));
 }
 function profileApprovedRows(){
@@ -230,6 +248,80 @@ function refreshProfileSummary(){
 function openProfileDrawer(){ profileDrawer.classList.add('is-open'); profileOverlay.classList.add('visible'); profileTrigger.setAttribute('aria-expanded','true'); refreshProfileSummary(); refreshIcons(); }
 function closeProfileDrawer(){ profileDrawer.classList.remove('is-open'); profileOverlay.classList.remove('visible'); profileTrigger.setAttribute('aria-expanded','false'); }
 
+function setLoginFlow(mode='login'){
+  const isLogin=mode==='login';
+  loginIdentity.hidden=!isLogin;
+  loginForm.hidden=!isLogin;
+  firstAccessView.hidden=mode!=='first-access';
+  passwordResetView.hidden=mode!=='reset';
+  loginPanel?.classList.toggle('mode-expanded',!isLogin);
+  if(isLogin){
+    syncFirstAccessButton();
+    requestAnimationFrame(()=>emailInput.focus());
+  }
+  refreshIcons();
+}
+function populateFirstAccessSellers(){
+  const select=firstAccessForm?.elements?.seller_name;
+  if(!select || select.options.length>1) return;
+  SELLERS.forEach(name=>select.add(new Option(name,name)));
+}
+function openFirstAccessInline(){
+  populateFirstAccessSellers();
+  const typed=emailInput.value.trim();
+  if(typed && firstAccessForm?.elements?.login) firstAccessForm.elements.login.value=typed;
+  $('#firstAccessError').textContent='';
+  setLoginFlow('first-access');
+  setTimeout(()=>firstAccessForm?.elements?.seller_name?.focus(),80);
+}
+function openPasswordResetInline(){
+  const typed=emailInput.value.trim();
+  if(passwordResetForm?.elements?.login) passwordResetForm.elements.login.value=typed;
+  $('#passwordResetError').textContent='';
+  setLoginFlow('reset');
+  setTimeout(()=>passwordResetForm?.elements?.login?.focus(),80);
+}
+firstAccessButton?.addEventListener('click',openFirstAccessInline);
+forgotPasswordButton?.addEventListener('click',openPasswordResetInline);
+$('#cancelFirstAccess')?.addEventListener('click',()=>setLoginFlow('login'));
+$('#cancelPasswordReset')?.addEventListener('click',()=>setLoginFlow('login'));
+
+firstAccessForm?.addEventListener('submit',async event=>{
+  event.preventDefault();
+  const fd=new FormData(firstAccessForm),password=String(fd.get('password')||''),confirm=String(fd.get('confirm_password')||''),submit=firstAccessForm.querySelector('button[type=submit]'),errorEl=$('#firstAccessError');
+  errorEl.textContent='';
+  if(password!==confirm){errorEl.textContent='As senhas não conferem.';return;}
+  submit.disabled=true;submit.innerHTML='<i data-lucide="loader-circle" class="spin"></i>Criando acesso';refreshIcons();
+  try{
+    const response=await fetch('/api/first-access',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({seller_name:fd.get('seller_name'),login:fd.get('login'),password,access_code:fd.get('access_code')})});
+    const payload=await response.json().catch(()=>({}));if(!response.ok)throw new Error(payload.error||'Não foi possível criar o acesso.');
+    try{localStorage.setItem(FIRST_ACCESS_DEVICE_KEY,'1');}catch{}
+    syncFirstAccessButton();
+    emailInput.value=String(fd.get('login')||'');passwordInput.value=password;
+    firstAccessForm.reset();setLoginFlow('login');await revealLoginProgressiveStep();
+    const profile=await loginAccount(payload.email,password);await signIn(profile);toast('Primeiro acesso criado com sucesso.');
+  }catch(error){errorEl.textContent=error.message||'Não foi possível criar o primeiro acesso.';}
+  finally{submit.disabled=false;submit.innerHTML='<i data-lucide="user-plus"></i>Criar acesso';refreshIcons();}
+});
+
+passwordResetForm?.addEventListener('submit',async event=>{
+  event.preventDefault();
+  const fd=new FormData(passwordResetForm),password=String(fd.get('password')||''),confirm=String(fd.get('confirm_password')||''),submit=passwordResetForm.querySelector('button[type=submit]'),errorEl=$('#passwordResetError');
+  errorEl.textContent='';
+  if(password!==confirm){errorEl.textContent='As senhas não conferem.';return;}
+  submit.disabled=true;submit.innerHTML='<i data-lucide="loader-circle" class="spin"></i>Salvando';refreshIcons();
+  try{
+    const response=await fetch('/api/reset-password',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({login:fd.get('login'),password,reset_code:fd.get('reset_code')})});
+    const payload=await response.json().catch(()=>({}));if(!response.ok)throw new Error(payload.error||'Não foi possível redefinir a senha.');
+    try{localStorage.setItem(FIRST_ACCESS_DEVICE_KEY,'1');}catch{}
+    syncFirstAccessButton();
+    emailInput.value=String(fd.get('login')||'');passwordInput.value='';
+    passwordResetForm.reset();setLoginFlow('login');await revealLoginProgressiveStep();
+    toast('Senha redefinida. Entre com a nova senha.');
+  }catch(error){errorEl.textContent=error.message||'Não foi possível redefinir a senha.';}
+  finally{submit.disabled=false;submit.innerHTML='<i data-lucide="rotate-ccw-key"></i>Salvar nova senha';refreshIcons();}
+});
+
 loginForm.addEventListener('submit', async e=>{
   e.preventDefault();
   const identifier=emailInput.value.trim();
@@ -246,16 +338,6 @@ loginForm.addEventListener('submit', async e=>{
   }catch(error){ loginError.textContent=error.message||'Não foi possível entrar.'; }
   finally{ submit.disabled=false; submit.textContent='Entrar'; }
 });
-
-document.querySelectorAll('[data-demo]').forEach(button=>button.addEventListener('click',()=>{
-  const credentials=previewCredentials(button.dataset.demo);
-  emailInput.value=credentials.identifier||credentials.email;
-  passwordInput.value=credentials.password;
-  loginError.textContent='';
-  emailInput.dispatchEvent(new Event('input',{bubbles:true}));
-  revealLoginProgressiveStep();
-  passwordInput.dispatchEvent(new Event('input',{bubbles:true}));
-}));
 
 emailInput.addEventListener('input',scheduleLoginReveal);
 emailInput.addEventListener('blur',()=>{ if(emailInput.value.trim().length>=2) revealLoginProgressiveStep(); });
@@ -276,7 +358,7 @@ function showSidebarTooltip(target){
   const rect=target.getBoundingClientRect();
   sidebarTooltip.textContent=target.dataset.tooltip;
   sidebarTooltip.hidden=false;
-  sidebarTooltip.style.left=`${Math.round(rect.right+11)}px`;
+  sidebarTooltip.style.left=`${Math.round(rect.right+10)}px`;
   sidebarTooltip.style.top=`${Math.round(rect.top+(rect.height/2))}px`;
 }
 function bindSidebarTooltip(target){
@@ -327,12 +409,14 @@ bindSidebarTooltip($('#logoutButton'));
 $('#logoutButton').addEventListener('click',signOut);
 
 async function signIn(user){
+  if(!PREVIEW_LOGIN_ENABLED){try{localStorage.setItem(FIRST_ACCESS_DEVICE_KEY,'1');}catch{} syncFirstAccessButton();}
   currentUser=user; currentPage=user.role==='auditoria'?'vendas':'inicio';
   userName.textContent=user.name; userRole.textContent=loginRoleLabel(user.role); userTeam.textContent=user.team||user.time||'Time não informado'; userSector.textContent=user.sector||user.setor||'Comercial';
   loginView.classList.add('is-hidden'); appView.classList.remove('is-hidden');
   await refreshUserPhoto(); refreshProfileSummary(); buildMenu();
   try{ await loadSales(); await refreshResolvedUserTeam(); refreshProfileSummary(); }catch(error){ salesCache=[]; refreshProfileSummary(); toast(error.message||'Não foi possível carregar as vendas do Firebase.','error'); }
   renderPage(currentPage);
+  drainSheetQueueInBackground();
 }
 async function signOut(){
   closeProfileDrawer();
@@ -341,7 +425,7 @@ async function signOut(){
 }
 function resetSignedOutView(){
   if(activeProfilePhotoUrl){URL.revokeObjectURL(activeProfilePhotoUrl);activeProfilePhotoUrl='';}
-  currentUser=null; salesCache=[]; destroyCharts(); clearTeamVisualUrls(); closeModal(); appView.classList.add('is-hidden'); loginView.classList.remove('is-hidden'); emailInput.value=''; passwordInput.value=''; hideLoginProgressiveStep(); closeMobileMenu();
+  currentUser=null; salesCache=[]; destroyCharts(); clearTeamVisualUrls(); closeModal(); appView.classList.add('is-hidden'); loginView.classList.remove('is-hidden'); emailInput.value=''; passwordInput.value=''; hideLoginProgressiveStep(); setLoginFlow('login'); syncFirstAccessButton(); closeMobileMenu();
 }
 async function refreshResolvedUserTeam(){
   if(currentUser?.role!=='vendedor') return;
@@ -351,6 +435,67 @@ async function refreshResolvedUserTeam(){
   }catch{}
 }
 async function loadSales(){ const result=await SalesRepository.list(); salesCache=result.rows; }
+
+let sheetDrainRunning=false;
+async function firebaseAuthHeaders(){
+  if(PREVIEW_LOGIN_ENABLED || !auth.currentUser) return {};
+  const token=await auth.currentUser.getIdToken();
+  return {Authorization:`Bearer ${token}`};
+}
+async function drainSheetQueueInBackground(){
+  if(PREVIEW_LOGIN_ENABLED || sheetDrainRunning || !auth.currentUser) return;
+  sheetDrainRunning=true;
+  try{
+    for(let pass=0;pass<8;pass++){
+      const headers=await firebaseAuthHeaders();
+      const response=await fetch('/api/sheet-sync-queue',{
+        method:'POST',
+        headers:{...headers,'Content-Type':'application/json'},
+        body:JSON.stringify({limit:20})
+      });
+      const payload=await response.json().catch(()=>({}));
+      if(!response.ok) throw new Error(payload.error||'Não foi possível sincronizar a planilha.');
+      if(payload.busy || !Number(payload.remaining||0)) break;
+      await new Promise(resolve=>setTimeout(resolve,650));
+    }
+  }catch(error){
+    console.warn('Fila da planilha:',error);
+  }finally{
+    sheetDrainRunning=false;
+    if(currentPage==='vendas') refreshSheetHealthStatus();
+  }
+}
+async function refreshSheetHealthStatus(){
+  const el=$('#salesSheetHealth'); if(!el) return;
+  const localPanelCount=salesCache.length;
+  if(PREVIEW_LOGIN_ENABLED){
+    el.className='sales-sheet-health preview';
+    el.innerHTML=`<i data-lucide="flask-conical"></i><span>Preview · Painel ${localPanelCount}</span>`;
+    refreshIcons(); return;
+  }
+  try{
+    const headers=await firebaseAuthHeaders();
+    const response=await fetch('/api/sheet-health',{headers});
+    const payload=await response.json().catch(()=>({}));
+    if(!response.ok) throw new Error(payload.error||'Falha ao consultar planilha.');
+    const health=payload.health;
+    if(!health){
+      el.className='sales-sheet-health pending';
+      el.innerHTML=`<i data-lucide="clock-3"></i><span>Planilha aguardando conferência · Painel ${localPanelCount}</span>`;
+    }else{
+      const sheetCount=Number(health.sheet_count||0);
+      const panelCount=Number(health.panel_count ?? localPanelCount);
+      const ok=sheetCount===panelCount && health.ok!==false;
+      el.className=`sales-sheet-health ${ok?'ok':'attention'}`;
+      el.innerHTML=`<i data-lucide="${ok?'circle-check':'triangle-alert'}"></i><span>Planilha ${sheetCount} · Painel ${panelCount} · <strong>${ok?'OK':'Conferir'}</strong></span>`;
+      el.title=health.checked_at?`Última conferência: ${formatDateTimeBR(health.checked_at)}`:'';
+    }
+  }catch{
+    el.className='sales-sheet-health offline';
+    el.innerHTML=`<i data-lucide="cloud-off"></i><span>Planilha sem conferência · Painel ${localPanelCount}</span>`;
+  }
+  refreshIcons();
+}
 function closeMobileMenu(){ sidebar.classList.remove('mobile-open'); mobileOverlay.classList.remove('visible'); }
 
 function buildMenu(){
@@ -381,6 +526,15 @@ function homeMetric(icon,label,value,helper=''){
 function homeShortcut(page,icon,title,description,accent=''){
   return `<button type="button" class="home-shortcut ${accent}" data-home-page="${page}"><span><i data-lucide="${icon}"></i></span><div><strong>${title}</strong><small>${description}</small></div><i data-lucide="arrow-up-right"></i></button>`;
 }
+function homeActivityItem(row){
+  const audit=auditInfo(row.audit_status);
+  const tone=row.audit_status==='ok'?'ok':row.audit_status==='not_ok'?'not-ok':'pending';
+  return `<div class="home-activity-item">
+    <span class="home-activity-icon ${tone}"><i data-lucide="${row.audit_status==='ok'?'check':row.audit_status==='not_ok'?'x':'clock-3'}"></i></span>
+    <div class="home-activity-main"><strong>${escapeHTML(row.student_name||'Venda')}</strong><span>${escapeHTML(row.seller_name||'')} · ${paymentLabel(row.payment_type)} · ${formatDateBR(row.sale_date)}</span></div>
+    <div class="home-activity-value"><strong>${money.format(Number(row.total_value||0))}</strong><span class="home-activity-status ${tone}">${escapeHTML(audit.label)}</span></div>
+  </div>`;
+}
 function renderHome(){
   destroyCharts();
   const today=todayISO();
@@ -395,6 +549,7 @@ function renderHome(){
   const boletos=approvedMonth.filter(row=>row.payment_type==='boleto').length;
   const todayRevenue=approvedToday.reduce((sum,row)=>sum+Number(row.total_value||0),0);
   const activeSellers=new Set(approvedToday.map(row=>row.seller_name).filter(Boolean)).size;
+  const recentActivity=[...scoped].sort((a,b)=>String(b.created_at||b.sale_date||'').localeCompare(String(a.created_at||a.sale_date||''))).slice(0,4);
   const firstName=escapeHTML(String(currentUser.name||'').split(' ')[0]||currentUser.name);
   const monthLabel=new Intl.DateTimeFormat('pt-BR',{month:'long',year:'numeric'}).format(new Date(`${month}-01T12:00:00`));
   const roleText=sellerOnly?'Seu ponto de partida para acompanhar produção, metas e rotina comercial.':'Visão rápida da operação e atalhos para os principais controles do comercial.';
@@ -442,6 +597,10 @@ function renderHome(){
         </div>
         <div class="home-priority ${pending?'attention':'clear'}"><span><i data-lucide="${pending?'circle-alert':'circle-check'}"></i></span><div><strong>${priorityTitle}</strong><p>${priorityText}</p></div></div>
       </aside>
+    </section>
+    <section class="home-activity-section">
+      <div class="home-section-heading home-activity-heading"><div><span class="section-kicker">ATIVIDADE RECENTE</span><h3>Últimos movimentos</h3></div><span>${sellerOnly?'Suas vendas mais recentes.':'Últimos lançamentos da operação.'}</span></div>
+      <div class="home-activity-list">${recentActivity.length?recentActivity.map(homeActivityItem).join(''):emptyState({icon:'history',title:'Nenhuma atividade recente',description:'Os lançamentos aparecerão aqui assim que houver movimentação.'})}</div>
     </section>`;
   content.querySelectorAll('[data-home-page]').forEach(button=>button.addEventListener('click',()=>renderPage(button.dataset.homePage)));
   initHomeShortcutsCarousel();
@@ -483,8 +642,13 @@ function renderPage(id){
   if(id!=='times') clearTeamVisualUrls();
   if(currentUser.role==='auditoria' && id!=='vendas') id='vendas';
   content.classList.toggle('teams-view',id==='times');
+  content.dataset.page=id;
   currentPage=id;
-  document.querySelectorAll('.nav-item[data-page]').forEach(el=>el.classList.toggle('active',el.dataset.page===id || (id==='fca-semanal'&&el.dataset.page==='fca')));
+  document.querySelectorAll('.nav-item[data-page]').forEach(el=>{
+    const active=el.dataset.page===id || (id==='fca-semanal'&&el.dataset.page==='fca');
+    el.classList.toggle('active',active);
+    if(active) el.setAttribute('aria-current','page'); else el.removeAttribute('aria-current');
+  });
   document.querySelectorAll('.nav-submenu-item[data-page]').forEach(el=>el.classList.toggle('active',el.dataset.page===id));
   if(id==='inicio') return renderHome();
   if(id==='dashboard') return currentUser.role==='gestor'?renderDashboard({mode:'geral'}):renderSellerDashboard();
@@ -495,7 +659,7 @@ function renderPage(id){
   if(id==='comissoes') return renderCommissions();
   if(id==='indicadores') return currentUser.role==='gestor'?renderIndicators():renderSellerDashboard();
   const [title,desc]=PAGE_COPY[id]||['Módulo','Estrutura pronta para receber conteúdo.'];
-  content.innerHTML=`<section class="page-intro"><div><span class="eyebrow">MÓDULO</span><h2>${title}</h2><p>${desc}</p></div></section><section class="blank-canvas"><div class="blank-canvas-mark"><i data-lucide="layout-dashboard"></i></div><span>Conteúdo em branco por enquanto</span></section>`;
+  content.innerHTML=`${pageHeader({eyebrow:'MÓDULO',title,description:desc})}${emptyState({icon:'layout-dashboard',title:'Conteúdo em preparação',description:'Esta área está pronta para receber a próxima etapa do módulo.'})}`;
   refreshIcons();
 }
 
@@ -525,7 +689,7 @@ function teamMemberRows(config,month){
   return (config.members||[]).map(name=>{
     const rows=monthRows.filter(row=>row.seller_name===name);
     return {name,value:teamMetricValue(config,rows)};
-  }).sort((a,b)=>b.value-a.value||a.name.localeCompare(b.name,'pt-BR'));
+  }).sort((a,b)=>{const ac=a.name===config.captain?1:0,bc=b.name===config.captain?1:0;return bc-ac||b.value-a.value||a.name.localeCompare(b.name,'pt-BR');});
 }
 function teamAccentIcon(config){
   return ({goat:'crown',winx:'sparkles',evolution:'trending-up',elite:'gem',predadores:'shield',invictus:'flame',alfas:'star',alphas:'zap'})[config.id]||'users-round';
@@ -548,7 +712,31 @@ function teamLogoMarkup(config,logoUrl='',size='card'){
 }
 function clearTeamVisualUrls(){
   teamLogoObjectUrls.forEach(url=>{if(String(url).startsWith('blob:'))URL.revokeObjectURL(url);});
+  teamMemberPhotoObjectUrls.forEach(url=>{if(String(url).startsWith('blob:'))URL.revokeObjectURL(url);});
   teamLogoObjectUrls=[];teamLogoUrlById.clear();
+  teamMemberPhotoObjectUrls=[];teamMemberPhotoUrlByName.clear();
+}
+async function loadTeamMemberPhotos(configs){
+  teamMemberPhotoUrlByName.clear();
+  const names=[...new Set((configs||[]).flatMap(config=>config.members||[]).filter(Boolean))];
+  if(!names.length) return;
+  if(PREVIEW_LOGIN_ENABLED){
+    for(const name of names){
+      try{const blob=await ProfilePhotoStore.get(name);if(blob){const url=URL.createObjectURL(blob);teamMemberPhotoUrlByName.set(name,url);teamMemberPhotoObjectUrls.push(url);}}catch{}
+    }
+    return;
+  }
+  try{
+    const headers=await firebaseAuthHeaders();
+    const response=await fetch('/api/team-profiles',{headers});
+    const payload=await response.json().catch(()=>({}));
+    if(!response.ok) throw new Error(payload.error||'Não foi possível carregar as fotos do time.');
+    for(const profile of payload.profiles||[]){if(profile?.name&&profile?.photo_url&&names.includes(profile.name))teamMemberPhotoUrlByName.set(profile.name,profile.photo_url);}
+  }catch(error){console.warn('Fotos dos times:',error);}
+}
+function teamMemberPhotoMarkup(name){
+  const url=teamMemberPhotoUrlByName.get(name)||'';
+  return `<span class="team-member-avatar ${url?'has-photo':''}">${url?`<img src="${escapeHTML(url)}" alt="Foto de ${escapeHTML(name)}">`:`<span>${escapeHTML(userInitials(name))}</span>`}</span>`;
 }
 async function loadTeamLogos(configs){
   teamLogoUrlById.clear();
@@ -560,28 +748,23 @@ async function loadTeamLogos(configs){
   }
 }
 function teamCardMarkup(config,month,{manager=false}={}){
-  const memberRows=teamMemberRows(config,month);
-  const total=memberRows.reduce((sum,item)=>sum+item.value,0);
-  const logo=teamLogoUrlById.get(config.id)||'';
-  const hasMembers=memberRows.length>0;
+  const memberRows=teamMemberRows(config,month),total=memberRows.reduce((sum,item)=>sum+item.value,0),logo=teamLogoUrlById.get(config.id)||'',hasMembers=memberRows.length>0;
   return `<article class="team-card team-card-compact team-accent-${escapeHTML(config.accent||'blue')}">
     <header class="team-card-compact-head">
       ${teamLogoMarkup(config,logo)}
       <div class="team-card-compact-title"><h3>${escapeHTML(config.name)}</h3><span>${escapeHTML(teamMetricLabel(config))}</span></div>
       <div class="team-card-compact-total"><small>RESULTADO</small><strong>${formatTeamMetric(config,total)}</strong></div>
     </header>
-    <div class="team-card-compact-meta">
-      <span class="team-captain-line"><i data-lucide="crown"></i>${config.captain?escapeHTML(config.captain):'Capitão não definido'}</span>
-      <span>${memberRows.length} ${memberRows.length===1?'integrante':'integrantes'}</span>
-    </div>
+    <div class="team-card-member-count"><span>${memberRows.length} ${memberRows.length===1?'integrante':'integrantes'}</span></div>
     <div class="team-members-list team-members-list-compact">
       ${hasMembers?memberRows.map(member=>`<div class="team-member-row team-member-row-compact ${member.name===config.captain?'is-captain':''}">
-        <div class="team-member-name"><strong>${escapeHTML(member.name)}</strong>${member.name===config.captain?'<small><i data-lucide="crown"></i> Capitão</small>':''}</div>
+        <div class="team-member-name"><strong>${member.name===config.captain?'<i data-lucide="crown"></i>':''}${escapeHTML(member.name)}</strong>${member.name===config.captain?'<small>Capitão</small>':''}</div>
         <strong class="team-member-value">${formatTeamMetric(config,member.value)}</strong>
       </div>`).join(''):`<div class="team-empty-members team-empty-members-compact"><span>${manager?'Nenhum integrante':'Time ainda sem integrantes'}</span></div>`}
     </div>
   </article>`;
 }
+
 function defaultTeamConfig(team){
   return {
     ...team,
@@ -677,14 +860,15 @@ async function openTeamConfigModal(teamId){
   const logo=teamLogoUrlById.get(config.id)||'';
   openModal(`<div class="mini-modal team-config-modal">
     <div class="modal-head"><div><span class="section-kicker">CONFIGURAR TIMES</span><h3>${escapeHTML(config.name)}</h3><p>Escolha um time abaixo e ajuste composição, capitão e indicador.</p></div><button class="modal-close" data-close-modal><i data-lucide="x"></i></button></div>
-    <div class="team-config-switcher">${TEAM_DEFINITIONS.map(team=>`<button type="button" class="team-config-switch ${team.id===config.id?'active':''}" data-switch-team="${escapeHTML(team.id)}">${escapeHTML(team.name)}</button>`).join('')}</div>
+    <div class="team-config-workspace">
+    <div class="team-config-switcher">${TEAM_DEFINITIONS.map(team=>`<button type="button" class="team-config-switch ${team.id===config.id?'active':''}" data-switch-team="${escapeHTML(team.id)}"><span>${escapeHTML(team.name)}</span><i data-lucide="chevron-right"></i></button>`).join('')}</div>
     <form id="teamConfigForm" class="team-config-form">
       <div class="team-config-top">
         <div class="team-logo-editor-wrap">${teamLogoMarkup(config,logo,'editor')}<label class="secondary-action team-logo-upload"><i data-lucide="image-up"></i>Alterar logo<input type="file" name="logo" accept="image/png,image/jpeg,image/webp" hidden></label>${logo?'<button type="button" class="team-logo-remove" data-remove-team-logo><i data-lucide="trash-2"></i>Remover</button>':''}</div>
         <div class="team-config-fields">
-          <label class="form-field"><span>Indicador do time</span><select name="indicator"><option value="faturado" ${config.indicator==='faturado'?'selected':''}>Faturado</option><option value="boleto" ${config.indicator==='boleto'?'selected':''}>Boleto</option><option value="ponto" ${config.indicator==='ponto'?'selected':''}>Pontos</option></select></label>
+          <label class="form-field"><span>Indicador do time</span><select name="indicator"><option value="faturado" ${config.indicator==='faturado'?'selected':''}>Faturado</option><option value="boleto" ${config.indicator==='boleto'?'selected':''}>Boleto</option><option value="ponto" ${config.indicator==='ponto'?'selected':''}>Pontos</option></select><small class="field-help field-help-spacer" aria-hidden="true">&nbsp;</small></label>
           <label class="form-field"><span>Forma de medição</span><select name="measure" ${config.indicator==='ponto'?'disabled':''}><option value="valor" ${config.measure==='valor'?'selected':''}>Valor (R$)</option><option value="quantidade" ${config.measure==='quantidade'?'selected':''}>Quantidade</option></select><small class="field-help" data-measure-help>${config.indicator==='ponto'?'Cartão = 2 pontos; Boleto e Sem taxa = 1 ponto por matrícula.':'Escolha como o resultado será exibido.'}</small></label>
-          <label class="form-field"><span>Capitão</span><select name="captain"><option value="">Não definido</option>${SELLERS.map(name=>`<option value="${escapeHTML(name)}" ${config.captain===name?'selected':''}>${escapeHTML(name)}</option>`).join('')}</select></label>
+          <label class="form-field"><span>Capitão</span><select name="captain"><option value="">Não definido</option>${SELLERS.map(name=>`<option value="${escapeHTML(name)}" ${config.captain===name?'selected':''}>${escapeHTML(name)}</option>`).join('')}</select><small class="field-help field-help-spacer" aria-hidden="true">&nbsp;</small></label>
         </div>
       </div>
       <div class="team-members-config">
@@ -694,6 +878,7 @@ async function openTeamConfigModal(teamId){
       </div>
       <div class="modal-actions"><button type="button" class="secondary-action" data-close-modal>Cancelar</button><button type="submit" class="primary-action"><i data-lucide="save"></i>Salvar time</button></div>
     </form>
+    </div>
   </div>`);
   const form=$('#teamConfigForm');
   document.querySelectorAll('[data-switch-team]').forEach(button=>button.addEventListener('click',()=>{if(button.dataset.switchTeam===config.id)return;closeModal();openTeamConfigModal(button.dataset.switchTeam);}));
@@ -767,6 +952,7 @@ function renderSales(){
           <div class="sales-stat"><span>Matrículas</span><strong>${summary.courses}</strong></div>
         </div>
         ${auditMode?'':`<button id="toggleSaleForm" class="primary-action sales-add-button"><i data-lucide="plus"></i>Adicionar venda</button>`}
+        <div id="salesSheetHealth" class="sales-sheet-health pending"><i data-lucide="loader-circle" class="spin"></i><span>Conferindo planilha...</span></div>
       </div>
     </section>
     ${auditMode?'':'<section id="saleFormPanel" class="sale-entry-panel is-collapsed"></section>'}
@@ -799,7 +985,7 @@ function renderSales(){
     document.querySelectorAll('[data-sales-status]').forEach(x=>x.classList.toggle('active',x===btn));
     renderSalesTable(ownRows);
   }));
-  renderSalesTable(ownRows); refreshIcons();
+  renderSalesTable(ownRows); refreshIcons(); refreshSheetHealthStatus();
 }
 
 function salesStatusFilterButton(value,label,count){
@@ -959,23 +1145,33 @@ function renderSalesTable(baseRows){
   hideAuditTooltip();
   const wrap=$('#salesTableWrap'); if(!wrap) return;
   const rows=filterSalesRows(baseRows);
-  if(!rows.length){ wrap.innerHTML=`<div class="empty-sales"><i data-lucide="receipt-text"></i><strong>Nenhuma venda encontrada</strong><span>Ajuste os filtros ou faça um novo lançamento.</span></div>`; refreshIcons(); return; }
+  if(!rows.length){ wrap.innerHTML=emptyState({icon:'receipt-text',title:'Nenhuma venda encontrada',description:'Ajuste os filtros ou faça um novo lançamento.'}); refreshIcons(); return; }
   wrap.innerHTML=`<table class="sales-table"><thead><tr><th class="audit-col">Auditoria</th><th>Data</th><th>Aluno</th><th>Vendedor</th><th>Pagamento</th><th>Modalidade / curso</th><th>Origem</th><th class="num">Qtd.</th><th class="num">Total</th><th class="receipt-col">Comprovante</th></tr></thead><tbody>${rows.map(saleRowsMarkup).join('')}</tbody></table>`;
 
   wrap.querySelectorAll('[data-sale-main]').forEach(row=>{
     const details=wrap.querySelector(`[data-sale-details="${row.dataset.saleMain}"]`);
     if(!details) return;
-    const openDetails=()=>details.classList.remove('is-hidden');
-    const closeDetails=()=>details.classList.add('is-hidden');
-    row.addEventListener('mouseenter',openDetails);
+    row.tabIndex=0;
+    row.setAttribute('aria-expanded','false');
+    const openDetails=()=>{details.classList.remove('is-hidden');row.setAttribute('aria-expanded','true');};
+    const closeDetails=()=>{details.classList.add('is-hidden');row.setAttribute('aria-expanded','false');};
+    const toggleDetails=()=>details.classList.contains('is-hidden')?openDetails():closeDetails();
+    row.addEventListener('mouseenter',()=>{if(window.matchMedia('(hover:hover)').matches)openDetails();});
     row.addEventListener('mouseleave',event=>{
-      if(details.contains(event.relatedTarget)) return;
+      if(!window.matchMedia('(hover:hover)').matches || details.contains(event.relatedTarget)) return;
       closeDetails();
     });
-    details.addEventListener('mouseenter',openDetails);
+    details.addEventListener('mouseenter',()=>{if(window.matchMedia('(hover:hover)').matches)openDetails();});
     details.addEventListener('mouseleave',event=>{
-      if(row.contains(event.relatedTarget)) return;
+      if(!window.matchMedia('(hover:hover)').matches || row.contains(event.relatedTarget)) return;
       closeDetails();
+    });
+    row.addEventListener('click',event=>{
+      if(event.target.closest('button,input,select,a,label')) return;
+      if(window.matchMedia('(hover:none),(pointer:coarse),(max-width:900px)').matches) toggleDetails();
+    });
+    row.addEventListener('keydown',event=>{
+      if(event.key==='Enter'||event.key===' '){event.preventDefault();toggleDetails();}
     });
   });
   wrap.querySelectorAll('[data-receipt-sale]').forEach(btn=>btn.addEventListener('click',event=>{
@@ -1030,11 +1226,9 @@ document.addEventListener('click',async event=>{
     try{
       const result=await SalesRepository.updateAudit(saleId,next,currentUser.name);
       replaceSale(result.sale);
-      if(next==='ok' && result.sheetSync?.status==='synced') toast('Venda OK e enviada para a planilha.');
-      else if(next==='ok' && result.sheetSync?.status==='already_synced') toast('Venda OK. Ela já estava registrada na planilha.');
-      else if(next==='ok' && result.sheetSync?.status==='error') toast(`Venda OK, mas não foi enviada à planilha: ${result.sheetSync.message||'erro de sincronização'}`,'error');
-      else if(next==='ok' && result.sheetSync?.status==='not_configured') toast('Venda OK. Configure o webhook da planilha para sincronizar.','error');
-      else toast('Auditoria atualizada.');
+      if(result.sheetSync?.status==='synced') toast('Auditoria atualizada e planilha sincronizada.');
+      else if(result.sheetSync?.status==='error') toast('Auditoria atualizada. A planilha ficou na fila para nova tentativa.','error');
+      else toast('Auditoria atualizada. Sincronização enviada para a fila.');
       hideAuditTooltip();
       closeAuditSelects();
       renderSales();
@@ -1338,13 +1532,39 @@ function weeklySellerGuidance(seller,focus,monthlyData){
   return {cls,title,detail};
 }
 
+function weeklyTasksForGoal(goal={}){
+  if(Array.isArray(goal.assigned_tasks)) return goal.assigned_tasks.map(task=>({...task,days:Array.isArray(task.days)?task.days:[0,1,2,3,4]}));
+  return (WeeklyPerformanceRepository.tasks||[]).map(task=>({...task,days:[0,1,2,3,4]}));
+}
+function weeklyDayIndex(date){
+  const day=new Date(`${date}T12:00:00`).getDay();
+  return day>=1&&day<=5?day-1:-1;
+}
+function weeklyTaskAssignedOn(task,index){
+  const days=Array.isArray(task?.days)?task.days:[0,1,2,3,4];
+  return days.map(Number).includes(Number(index));
+}
+function weeklyTasksForRecord(record={}){
+  const source=Array.isArray(record.task_catalog)?record.task_catalog:weeklyTasksForGoal({});
+  const dayIndex=weeklyDayIndex(record.date||todayISO());
+  return source.filter(task=>dayIndex<0||weeklyTaskAssignedOn(task,dayIndex));
+}
+function weeklyTaskDaysText(task){
+  const days=Array.isArray(task?.days)?[...new Set(task.days.map(Number))].filter(day=>day>=0&&day<=4):[0,1,2,3,4];
+  if(days.length===5) return 'Segunda a sexta';
+  return days.sort((a,b)=>a-b).map(day=>WEEKLY_DAY_LABELS[day]).join(', ')||'Sem dia definido';
+}
+function weeklyTaskEmptyRow(message){
+  return `<div class="weekly-task-empty"><i data-lucide="clipboard-list"></i><span>${escapeHTML(message)}</span></div>`;
+}
 function weeklySellerBoardMarkup({seller,weekStart,goal,records,monthlyData=null}){
-  const tasks=WeeklyPerformanceRepository.tasks||[],days=weeklyDates(weekStart),focus=weeklySellerFocusData(seller,weekStart,goal),today=todayISO();
-  const todayRecord=weeklyRecordForDate(records,today),doneToday=tasks.filter(task=>weeklyTaskState(todayRecord,task.id)).length;
+  const tasks=weeklyTasksForGoal(goal),days=weeklyDates(weekStart),focus=weeklySellerFocusData(seller,weekStart,goal),today=todayISO();
+  const todayRecord=weeklyRecordForDate(records,today),todayIndex=weeklyDayIndex(today),todayTasks=tasks.filter(task=>weeklyTaskAssignedOn(task,todayIndex)),doneToday=todayTasks.filter(task=>weeklyTaskState(todayRecord,task.id)).length;
   const targetLabel=focus.target?money.format(focus.target):'Aguardando definição';
   const guidance=weeklySellerGuidance(seller,focus,monthlyData);
   const paceText=!focus.target?'O gestor ainda não definiu sua meta semanal.':!focus.isCurrentWeek?'Acompanhe os resultados da semana selecionada.':focus.status==='ahead'?'Você está no ritmo ou acima da média da semana.':'Você está abaixo do ritmo esperado da semana.';
   const dailyText=!focus.target?'—':!focus.isCurrentWeek?'—':focus.todayRemaining<=0?'Ritmo de hoje atingido':money.format(focus.todayRemaining);
+  const taskTable=tasks.length?`<div class="weekly-task-table weekly-task-table-integrated"><div class="weekly-task-row header"><strong>TAREFAS</strong>${days.map(day=>`<span class="${day.date===today?'current-day':''}">${day.label.slice(0,3).toUpperCase()}</span>`).join('')}</div>${tasks.map(task=>`<div class="weekly-task-row"><strong>${escapeHTML(task.label)}</strong>${days.map((day,index)=>`<span class="weekly-task-cell ${day.date===today?'current-day':''}">${weeklyTaskAssignedOn(task,index)?weeklyStatusCell({date:day.date,record:weeklyRecordForDate(records,day.date),task,managerView:false}):'<span class="weekly-task-state not-assigned" title="Não atribuída neste dia"><i data-lucide="minus"></i></span>'}</span>`).join('')}</div>`).join('')}</div>`:weeklyTaskEmptyRow('Nenhuma tarefa foi atribuída para esta semana.');
   return `<section class="weekly-seller-overview">
     <div class="weekly-seller-overview-main"><span class="section-kicker">SEU DESAFIO DA SEMANA</span><h3>${escapeHTML(goal.indicator||'Faturamento semanal')}</h3><p>${paceText}</p></div>
     <div class="weekly-seller-overview-metrics">
@@ -1358,19 +1578,19 @@ function weeklySellerBoardMarkup({seller,weekStart,goal,records,monthlyData=null
 
   <section class="weekly-today-focus ${focus.status}">
     <div class="weekly-today-focus-icon"><i data-lucide="target"></i></div>
-    <div class="weekly-today-focus-copy"><span>FOCO DE HOJE</span><h3>${focus.isCurrentWeek&&focus.target?`Para ficar na média hoje, faltam ${dailyText}.`:'Acompanhe sua rotina comercial.'}</h3><p>${focus.isCurrentWeek&&focus.target?`Você já faturou ${money.format(focus.todayRevenue)} hoje. Complete também as tarefas do dia para fechar a rotina.`:'As atividades ficam disponíveis no dia correspondente e o faturamento considera somente vendas OK.'}</p></div>
+    <div class="weekly-today-focus-copy"><span>FOCO DE HOJE</span><h3>${focus.isCurrentWeek&&focus.target?`Para ficar na média hoje, faltam ${dailyText}.`:'Acompanhe sua rotina comercial.'}</h3><p>${focus.isCurrentWeek&&focus.target?`Você já faturou ${money.format(focus.todayRevenue)} hoje. Complete também as tarefas atribuídas para o dia.`:'As atividades ficam disponíveis no dia definido pelo gestor e o faturamento considera somente vendas OK.'}</p></div>
     <div class="weekly-today-focus-values">
       <div><span>Meta ajustada de hoje</span><strong>${focus.isCurrentWeek&&focus.target?money.format(focus.todayTarget):'—'}</strong></div>
       <div><span>Já feito hoje</span><strong>${focus.isCurrentWeek?money.format(focus.todayRevenue):'—'}</strong></div>
-      <div><span>Tarefas de hoje</span><strong>${focus.isCurrentWeek?`${doneToday}/${tasks.length}`:'—'}</strong></div>
+      <div><span>Tarefas de hoje</span><strong>${focus.isCurrentWeek?`${doneToday}/${todayTasks.length}`:'—'}</strong></div>
     </div>
   </section>
 
   <div class="weekly-guidance-line ${guidance.cls}"><span class="weekly-guidance-icon"><i data-lucide="sparkles"></i></span><div><strong>${guidance.title}</strong><p>${guidance.detail}</p></div></div>
 
   <section class="weekly-integrated-section">
-    <div class="weekly-integrated-heading"><div><span class="section-kicker">ROTINA DIÁRIA</span><h3>Tarefas da semana</h3></div><p>Marque os checkzinhos no dia atual. Após 23:59, o resultado do dia é registrado.</p></div>
-    <div class="weekly-task-table weekly-task-table-integrated"><div class="weekly-task-row header"><strong>INDICADORES / TAREFAS</strong>${days.map(day=>`<span class="${day.date===today?'current-day':''}">${day.label.slice(0,3).toUpperCase()}</span>`).join('')}</div>${tasks.map(task=>`<div class="weekly-task-row"><strong>${escapeHTML(task.label)}</strong>${days.map(day=>`<span class="weekly-task-cell ${day.date===today?'current-day':''}">${weeklyStatusCell({date:day.date,record:weeklyRecordForDate(records,day.date),task,managerView:false})}</span>`).join('')}</div>`).join('')}</div>
+    <div class="weekly-integrated-heading"><div><span class="section-kicker">ROTINA DIÁRIA</span><h3>Tarefas atribuídas</h3></div><p>O gestor escolhe a tarefa, o vendedor e os dias. No dia atual, você marca o que concluiu.</p></div>
+    ${taskTable}
   </section>
 
   <section class="weekly-integrated-section weekly-challenge-integrated">
@@ -1382,24 +1602,25 @@ function weeklySellerBoardMarkup({seller,weekStart,goal,records,monthlyData=null
 }
 
 function weeklyBoardMarkup({seller,weekStart,goal,records,managerView=false}){
-  const days=weeklyDates(weekStart),tasks=WeeklyPerformanceRepository.tasks||[],today=todayISO();
+  const days=weeklyDates(weekStart),tasks=weeklyTasksForGoal(goal),today=todayISO();
   const weekRevenue=weeklyApprovedRevenue(seller,weekStart,weeklyEndFromStart(weekStart));
   const remaining=goal.weekly_target?Math.max(Number(goal.weekly_target)-weekRevenue,0):0;
   const pct=goal.weekly_target?Math.min((weekRevenue/Number(goal.weekly_target))*100,100):0;
+  const taskTable=tasks.length?`<div class="weekly-task-table weekly-task-table-integrated"><div class="weekly-task-row header"><strong>TAREFAS</strong>${days.map(day=>`<span class="${day.date===today?'current-day':''}">${day.label.slice(0,3).toUpperCase()}</span>`).join('')}</div>${tasks.map(task=>`<div class="weekly-task-row"><strong>${escapeHTML(task.label)}</strong>${days.map((day,index)=>`<span class="weekly-task-cell ${day.date===today?'current-day':''}">${weeklyTaskAssignedOn(task,index)?weeklyStatusCell({date:day.date,record:weeklyRecordForDate(records,day.date),task,managerView}):'<span class="weekly-task-state not-assigned" title="Não atribuída neste dia"><i data-lucide="minus"></i></span>'}</span>`).join('')}</div>`).join('')}</div>`:weeklyTaskEmptyRow('Nenhuma tarefa atribuída para este vendedor nesta semana.');
   return `<section class="weekly-manager-board-integrated">
     <div class="weekly-performance-identity weekly-performance-identity-integrated"><div><span>VENDEDOR(A)</span><strong>${escapeHTML(seller)}</strong></div><div><span>INDICADOR</span><strong>${escapeHTML(goal.indicator||'Faturamento semanal')}</strong></div><div><span>META SEMANAL</span><strong>${goal.weekly_target?money.format(goal.weekly_target):'Não definida'}</strong></div><div><span>FATURADO</span><strong>${money.format(weekRevenue)}</strong></div><div><span>QUANTO FALTA</span><strong>${goal.weekly_target?money.format(remaining):'—'}</strong></div></div>
     <div class="weekly-manager-progress"><span style="width:${pct}%"></span></div>
-    <section class="weekly-integrated-section weekly-manager-integrated-section"><div class="weekly-integrated-heading"><div><span class="section-kicker">ROTINA DIÁRIA</span><h3>Tarefas da semana</h3></div><p>Visualização geral do que foi concluído, ficou pendente ou ainda está por acontecer.</p></div><div class="weekly-task-table weekly-task-table-integrated"><div class="weekly-task-row header"><strong>INDICADORES / TAREFAS</strong>${days.map(day=>`<span class="${day.date===today?'current-day':''}">${day.label.slice(0,3).toUpperCase()}</span>`).join('')}</div>${tasks.map(task=>`<div class="weekly-task-row"><strong>${escapeHTML(task.label)}</strong>${days.map(day=>`<span class="weekly-task-cell ${day.date===today?'current-day':''}">${weeklyStatusCell({date:day.date,record:weeklyRecordForDate(records,day.date),task,managerView})}</span>`).join('')}</div>`).join('')}</div></section>
+    <section class="weekly-integrated-section weekly-manager-integrated-section"><div class="weekly-integrated-heading"><div><span class="section-kicker">ROTINA DIÁRIA</span><h3>Tarefas da semana</h3></div><p>Visualização das tarefas atribuídas especificamente a ${escapeHTML(seller)}.</p></div>${taskTable}</section>
     <section class="weekly-integrated-section weekly-challenge-integrated weekly-manager-integrated-section"><div class="weekly-integrated-heading"><div><span class="section-kicker">ACOMPANHAMENTO</span><h3>Faturamento da semana</h3></div><p>O vendido considera somente vendas aprovadas pela auditoria.</p></div><div class="weekly-challenge-title">CONTROLE DO DESAFIO SEMANAL</div><div class="weekly-challenge-table"><div class="weekly-challenge-row header"><strong>DIA</strong><span>VENDIDO NO DIA</span><span>META SEMANAL</span><span>QUANTO FALTA</span></div>${days.map(day=>{const record=weeklyRecordForDate(records,day.date),sold=weeklySoldForDay(seller,day.date,record),cumulative=weeklyCumulative(seller,weekStart,day.date,record),dayRemaining=Math.max(Number(goal.weekly_target||0)-cumulative,0);return `<div class="weekly-challenge-row ${day.date===today?'today':''}"><strong>${day.label}</strong><span>${money.format(sold)}</span><span>${goal.weekly_target?money.format(goal.weekly_target):'—'}</span><span>${goal.weekly_target?money.format(dayRemaining):'—'}</span></div>`;}).join('')}<div class="weekly-challenge-row total"><strong>TOTAL</strong><span>${money.format(weekRevenue)}</span><span>${goal.weekly_target?money.format(goal.weekly_target):'—'}</span><span>${goal.weekly_target?money.format(remaining):'—'}</span></div></div><div class="weekly-performance-foot weekly-performance-foot-integrated"><span><i data-lucide="shield-check"></i>Somente vendas OK alimentam o faturamento.</span><span><i data-lucide="clock-3"></i>Fechamento diário automático às 23:59.</span></div></section>
   </section>`;
 }
 function weeklyClosedReportCard(record){
-  const tasks=WeeklyPerformanceRepository.tasks||[],done=tasks.filter(task=>weeklyTaskState(record,task.id)).length,missed=tasks.length-done;
+  const tasks=weeklyTasksForRecord(record),done=tasks.filter(task=>weeklyTaskState(record,task.id)).length,missed=tasks.length-done;
   return `<button type="button" class="weekly-report-card" data-weekly-report="${record.id}"><span class="weekly-report-date"><strong class="weekly-report-seller">${escapeHTML(record.seller_name)}</strong><small>${formatDateBR(record.date)}</small></span><span class="weekly-report-task ok"><strong>${done}/${tasks.length}</strong><small>tarefas feitas</small></span><span class="weekly-report-task ${missed?'missed':'ok'}"><strong>${missed}</strong><small>não feitas</small></span><span><strong>${money.format(record.sold_today)}</strong><small>vendido no dia</small></span><span><strong>${record.weekly_target?money.format(record.remaining):'—'}</strong><small>quanto faltava</small></span><i data-lucide="chevron-right"></i></button>`;
 }
 function openWeeklyClosedReport(record){
-  const tasks=WeeklyPerformanceRepository.tasks||[];
-  openModal(`<div class="mini-modal weekly-report-modal"><div class="modal-head"><div><span class="section-kicker">FECHAMENTO AUTOMÁTICO</span><h3>${escapeHTML(record.seller_name)}</h3><p>${formatDateBR(record.date)} • encerrado ${record.closed_at?formatDateTimeBR(record.closed_at):'às 23:59'}</p></div><button class="modal-close" data-close-modal><i data-lucide="x"></i></button></div><div class="weekly-report-summary"><div><span>Vendido</span><strong>${money.format(record.sold_today)}</strong></div><div><span>Acumulado semanal</span><strong>${money.format(record.cumulative_sold)}</strong></div><div><span>Meta semanal</span><strong>${record.weekly_target?money.format(record.weekly_target):'—'}</strong></div><div><span>Quanto faltava</span><strong>${record.weekly_target?money.format(record.remaining):'—'}</strong></div></div><div class="weekly-report-task-list">${tasks.map(task=>`<div class="${weeklyTaskState(record,task.id)?'done':'missed'}"><span><i data-lucide="${weeklyTaskState(record,task.id)?'check':'x'}"></i></span><strong>${escapeHTML(task.label)}</strong><small>${weeklyTaskState(record,task.id)?'Realizado':'Não realizado'}</small></div>`).join('')}</div></div>`);refreshIcons();
+  const tasks=weeklyTasksForRecord(record);
+  openModal(`<div class="mini-modal weekly-report-modal"><div class="modal-head"><div><span class="section-kicker">FECHAMENTO AUTOMÁTICO</span><h3>${escapeHTML(record.seller_name)}</h3><p>${formatDateBR(record.date)} • encerrado ${record.closed_at?formatDateTimeBR(record.closed_at):'às 23:59'}</p></div><button class="modal-close" data-close-modal><i data-lucide="x"></i></button></div><div class="weekly-report-summary"><div><span>Vendido</span><strong>${money.format(record.sold_today)}</strong></div><div><span>Acumulado semanal</span><strong>${money.format(record.cumulative_sold)}</strong></div><div><span>Meta semanal</span><strong>${record.weekly_target?money.format(record.weekly_target):'—'}</strong></div><div><span>Quanto faltava</span><strong>${record.weekly_target?money.format(record.remaining):'—'}</strong></div></div><div class="weekly-report-task-list">${tasks.length?tasks.map(task=>`<div class="${weeklyTaskState(record,task.id)?'done':'missed'}"><span><i data-lucide="${weeklyTaskState(record,task.id)?'check':'x'}"></i></span><strong>${escapeHTML(task.label)}</strong><small>${weeklyTaskState(record,task.id)?'Realizado':'Não realizado'}</small></div>`).join(''):'<div class="weekly-report-no-tasks">Nenhuma tarefa atribuída para este dia.</div>'}</div></div>`);refreshIcons();
 }
 
 async function renderWeeklyPerformance(){
@@ -1424,12 +1645,50 @@ function renderSellerWeeklyPerformance(goal,records,monthlyData=null){
   content.innerHTML=`<section class="weekly-head weekly-seller-head"><div><span class="eyebrow">FCA • ROTINA COMERCIAL</span><h2>Painel semanal de performance</h2><p>Sua meta, suas tarefas do dia e o faturamento da semana em uma única visão.</p></div><div class="weekly-week-actions"><button type="button" class="toolbar-action" id="weeklyPrev"><i data-lucide="chevron-left"></i></button><div><span>SEMANA</span><strong>${formatDateBR(weeklyPerformanceWeekStart)} – ${formatDateBR(weeklyEndFromStart(weeklyPerformanceWeekStart))}</strong></div><button type="button" class="toolbar-action" id="weeklyNext"><i data-lucide="chevron-right"></i></button></div></section>${weeklySellerBoardMarkup({seller:currentUser.name,weekStart:weeklyPerformanceWeekStart,goal,records,monthlyData})}`;
   bindWeeklyBoard(records);bindWeeklyNavigation();refreshIcons();
 }
+function managerWeeklyTaskAssignmentsMarkup(goal){
+  const assigned=weeklyTasksForGoal(goal);
+  const presets=WeeklyPerformanceRepository.tasks||[];
+  return `<section class="weekly-task-manager">
+    <div class="weekly-task-manager-head"><div><span class="section-kicker">ATRIBUIÇÃO DE TAREFAS</span><h3>Rotina de ${escapeHTML(weeklyPerformanceSeller)}</h3><p>Escolha uma tarefa padrão ou escreva uma específica e defina quando ela deve aparecer para este vendedor.</p></div><span class="weekly-task-count">${assigned.length} ${assigned.length===1?'tarefa':'tarefas'}</span></div>
+    <form id="weeklyTaskAssignForm" class="weekly-task-assign-form">
+      <label><span>TAREFA PADRÃO</span><select name="preset"><option value="">Escolher tarefa</option>${presets.map(task=>`<option value="${escapeHTML(task.id)}">${escapeHTML(task.label)}</option>`).join('')}<option value="custom">Tarefa personalizada</option></select></label>
+      <label class="wide"><span>OU ESCREVA UMA TAREFA</span><input name="custom_task" maxlength="120" placeholder="Ex.: Retornar todos os leads de ontem"></label>
+      <label><span>DIAS</span><select name="day"><option value="all">Segunda a sexta</option>${WEEKLY_DAY_LABELS.map((label,index)=>`<option value="${index}">${label}</option>`).join('')}</select></label>
+      <button type="submit" class="primary-action"><i data-lucide="plus"></i>Atribuir</button>
+    </form>
+    <div class="weekly-assigned-list">${assigned.length?assigned.map(task=>`<div class="weekly-assigned-task"><span><i data-lucide="check-square-2"></i></span><div><strong>${escapeHTML(task.label)}</strong><small>${escapeHTML(weeklyTaskDaysText(task))}</small></div><button type="button" data-remove-weekly-task="${escapeHTML(task.id)}" title="Remover tarefa"><i data-lucide="trash-2"></i></button></div>`).join(''):'<div class="weekly-assigned-empty">Nenhuma tarefa atribuída. O vendedor verá somente a meta semanal.</div>'}</div>
+  </section>`;
+}
 function renderManagerWeeklyPerformance(goal,records){
-  content.innerHTML=`<section class="weekly-head"><div><span class="eyebrow">FCA • GESTÃO DE PERFORMANCE</span><h2>Painel semanal de performance</h2><p>Defina manualmente a meta semanal e acompanhe o que cada vendedor realizou em cada dia.</p></div><button type="button" class="secondary-action" id="backToFca"><i data-lucide="arrow-left"></i>FCA do gestor</button></section><section class="weekly-manager-controls"><label><span>VENDEDOR</span><select id="weeklySeller">${SELLERS.map(name=>`<option ${name===weeklyPerformanceSeller?'selected':''}>${name}</option>`).join('')}</select></label><label><span>INÍCIO DA SEMANA</span><input id="weeklyWeekStart" type="date" value="${weeklyPerformanceWeekStart}"></label><form id="weeklyGoalForm"><label><span>INDICADOR</span><input name="indicator" value="${escapeHTML(goal.indicator||'Faturamento semanal')}" placeholder="Faturamento semanal"></label><label><span>META SEMANAL</span><input name="weekly_target" inputmode="decimal" value="${goal.weekly_target||''}" placeholder="R$ 0,00"></label><button class="primary-action" type="submit"><i data-lucide="save"></i>Salvar meta</button></form></section>${weeklyBoardMarkup({seller:weeklyPerformanceSeller,weekStart:weeklyPerformanceWeekStart,goal,records,managerView:true})}`;
+  content.innerHTML=`<section class="weekly-head"><div><span class="eyebrow">FCA • GESTÃO DE PERFORMANCE</span><h2>Painel semanal de performance</h2><p>Defina a meta e atribua tarefas específicas para cada vendedor.</p></div><button type="button" class="secondary-action" id="backToFca"><i data-lucide="arrow-left"></i>FCA do gestor</button></section><section class="weekly-manager-controls"><label><span>VENDEDOR</span><select id="weeklySeller">${SELLERS.map(name=>`<option ${name===weeklyPerformanceSeller?'selected':''}>${name}</option>`).join('')}</select></label><label><span>INÍCIO DA SEMANA</span><input id="weeklyWeekStart" type="date" value="${weeklyPerformanceWeekStart}"></label><form id="weeklyGoalForm"><label><span>INDICADOR</span><input name="indicator" value="${escapeHTML(goal.indicator||'Faturamento semanal')}" placeholder="Faturamento semanal"></label><label><span>META SEMANAL</span><input name="weekly_target" inputmode="decimal" value="${goal.weekly_target||''}" placeholder="R$ 0,00"></label><button class="primary-action" type="submit"><i data-lucide="save"></i>Salvar meta</button></form></section>${managerWeeklyTaskAssignmentsMarkup(goal)}${weeklyBoardMarkup({seller:weeklyPerformanceSeller,weekStart:weeklyPerformanceWeekStart,goal,records,managerView:true})}`;
   $('#backToFca').onclick=()=>renderPage('fca');
   $('#weeklySeller').onchange=e=>{weeklyPerformanceSeller=e.target.value;renderWeeklyPerformance();};
   $('#weeklyWeekStart').onchange=e=>{weeklyPerformanceWeekStart=weeklyStartFromDate(e.target.value||todayISO());renderWeeklyPerformance();};
   $('#weeklyGoalForm').onsubmit=async e=>{e.preventDefault();const form=e.currentTarget,fd=new FormData(form),button=form.querySelector('button[type=submit]');button.disabled=true;try{await WeeklyPerformanceRepository.saveGoal({seller_name:weeklyPerformanceSeller,week_start:weeklyPerformanceWeekStart,indicator:String(fd.get('indicator')||'').trim(),weekly_target:parseMoney(fd.get('weekly_target')),updated_by:currentUser.name});toast(`Meta semanal de ${weeklyPerformanceSeller} salva.`);renderWeeklyPerformance();}catch(error){button.disabled=false;toast(error.message||'Não foi possível salvar a meta.','error');}};
+  $('#weeklyTaskAssignForm').onsubmit=async event=>{
+    event.preventDefault();
+    const form=event.currentTarget,fd=new FormData(form),presetId=String(fd.get('preset')||''),custom=String(fd.get('custom_task')||'').trim(),dayValue=String(fd.get('day')||'all'),button=form.querySelector('button[type=submit]');
+    const preset=(WeeklyPerformanceRepository.tasks||[]).find(task=>task.id===presetId);
+    const label=custom || preset?.label || '';
+    if(!label){toast('Escolha uma tarefa ou escreva uma tarefa específica.','error');return;}
+    const newDays=dayValue==='all'?[0,1,2,3,4]:[Number(dayValue)];
+    const tasks=weeklyTasksForGoal(goal).map(task=>({...task,days:[...(task.days||[0,1,2,3,4])]}));
+    const existing=tasks.find(task=>task.label.localeCompare(label,'pt-BR',{sensitivity:'base'})===0);
+    if(existing) existing.days=[...new Set([...(existing.days||[]),...newDays])].sort((a,b)=>a-b);
+    else tasks.push({id:presetId&&presetId!=='custom'?presetId:`custom_${Date.now().toString(36)}`,label,days:newDays});
+    button.disabled=true;
+    try{
+      await WeeklyPerformanceRepository.saveGoal({seller_name:weeklyPerformanceSeller,week_start:weeklyPerformanceWeekStart,assigned_tasks:tasks,updated_by:currentUser.name});
+      toast(`Tarefa atribuída a ${weeklyPerformanceSeller}.`);renderWeeklyPerformance();
+    }catch(error){button.disabled=false;toast(error.message||'Não foi possível atribuir a tarefa.','error');}
+  };
+  content.querySelectorAll('[data-remove-weekly-task]').forEach(button=>button.addEventListener('click',async()=>{
+    if(!confirm('Remover esta tarefa da semana?'))return;
+    const tasks=weeklyTasksForGoal(goal).filter(task=>task.id!==button.dataset.removeWeeklyTask);
+    button.disabled=true;
+    try{await WeeklyPerformanceRepository.saveGoal({seller_name:weeklyPerformanceSeller,week_start:weeklyPerformanceWeekStart,assigned_tasks:tasks,updated_by:currentUser.name});toast('Tarefa removida.');renderWeeklyPerformance();}
+    catch(error){button.disabled=false;toast(error.message||'Não foi possível remover a tarefa.','error');}
+  }));
   refreshIcons();
 }
 function bindWeeklyNavigation(){
@@ -1650,70 +1909,71 @@ function openCreateFcaActionModal(report){
 }
 
 
+function manualBonificationMarkup(items=[]){
+  if(!items.length)return '<div class="commission-manual-empty">Nenhuma bonificação manual adicionada neste mês.</div>';
+  return items.map(item=>`<div class="commission-manual-row"><div><strong>${escapeHTML(item.title)}</strong><span>Adicionada por ${escapeHTML(item.created_by||'Gestor')}</span></div><strong>${money.format(item.amount)}</strong>${currentUser.role==='gestor'?`<button type="button" data-remove-bonification="${escapeHTML(item.id)}" title="Remover bonificação"><i data-lucide="trash-2"></i></button>`:''}</div>`).join('');
+}
+function openAddBonificationModal(defaultSeller){
+  openModal(`<div class="mini-modal commission-bonification-modal"><div class="modal-head"><div><span class="section-kicker">BONIFICAÇÃO MANUAL</span><h3>Adicionar bonificação</h3><p>O valor entra automaticamente no variável do mês selecionado.</p></div><button class="modal-close" data-close-modal><i data-lucide="x"></i></button></div><form id="manualBonificationForm" class="manual-bonification-form"><label class="form-field"><span>Vendedor</span><select name="seller_name">${indicatorSellerOrder().map(name=>`<option value="${escapeHTML(name)}" ${name===defaultSeller?'selected':''}>${escapeHTML(name)}</option>`).join('')}</select></label><label class="form-field"><span>Título da bonificação</span><input name="title" placeholder="Ex.: Destaque da semana" required maxlength="90"></label><label class="form-field"><span>Valor</span><input name="amount" inputmode="decimal" placeholder="R$ 0,00" required></label><div class="modal-actions"><button type="button" class="secondary-action" data-close-modal>Cancelar</button><button type="submit" class="primary-action"><i data-lucide="gift"></i>Adicionar</button></div></form></div>`);
+  $('#manualBonificationForm').onsubmit=async event=>{event.preventDefault();const form=event.currentTarget,fd=new FormData(form),seller=String(fd.get('seller_name')||''),title=String(fd.get('title')||'').trim(),amount=parseMoney(fd.get('amount')),button=form.querySelector('button[type=submit]');if(!seller||!title||amount<=0){toast('Informe vendedor, título e valor da bonificação.','error');return;}button.disabled=true;try{await CommissionAdjustmentsRepository.add({seller_name:seller,month:commissionMonth,title,amount,created_by:currentUser.name});selectedCommissionSeller=seller;closeModal();toast('Bonificação adicionada.');renderCommissions();}catch(error){button.disabled=false;toast(error.message||'Não foi possível adicionar a bonificação.','error');}};
+  refreshIcons();
+}
+
 async function renderCommissions(){
-  const availableSellers=currentUser.role==='gestor'?SELLERS:[currentUser.name];
-  if(!selectedCommissionSeller || !availableSellers.includes(selectedCommissionSeller)) selectedCommissionSeller=availableSellers[0];
+  const availableSellers=currentUser.role==='gestor'?indicatorSellerOrder():[currentUser.name];
+  if(!selectedCommissionSeller || !availableSellers.includes(selectedCommissionSeller)) selectedCommissionSeller=availableSellers[0]||currentUser.name;
   const profileMap=new Map(SELLER_PROFILES.map(profile=>[profile.name,profile]));
   const selectedProfile=profileMap.get(selectedCommissionSeller)||{name:selectedCommissionSeller,photo:''};
-  content.innerHTML=`<section class="seller-dashboard-loading"><i data-lucide="loader-circle" class="spin"></i><strong>Calculando comissões...</strong></section>`; refreshIcons();
+  content.innerHTML=loadingState('Calculando comissões...'); refreshIcons();
   try{
-    const goals=await GoalsRepository.getForSeller(selectedCommissionSeller,commissionMonth);
-    const ranking=calculateCommissionRanking(salesCache,{month:commissionMonth,sellers:SELLERS});
-    const rankingMap=new Map(ranking.map(item=>[item.seller,item]));
+    const [goals,manualBonifications]=await Promise.all([
+      GoalsRepository.getForSeller(selectedCommissionSeller,commissionMonth),
+      CommissionAdjustmentsRepository.listForSeller(selectedCommissionSeller,commissionMonth)
+    ]);
+    const ranking=calculateCommissionRanking(salesCache,{month:commissionMonth,sellers:SELLERS}),rankingMap=new Map(ranking.map(item=>[item.seller,item]));
     const selectedSnapshot=calculateCommissionSnapshot(salesCache,{seller:selectedCommissionSeller,month:commissionMonth,goals,rankingEntry:rankingMap.get(selectedCommissionSeller)});
+    const manualTotal=manualBonifications.reduce((sum,item)=>sum+Number(item.amount||0),0),variableTotal=selectedSnapshot.variableTotal+manualTotal,bonificationTotal=selectedSnapshot.bonificationTotal+manualTotal;
 
     content.innerHTML=`
-      <section class="commission-head">
-        <div class="commission-title"><span class="eyebrow">MODELO FCA</span><h2>Comissões</h2><p>Comissão, bonificação, bônus e premiações separados para não misturar as regras de remuneração.</p></div>
-        <label class="commission-month filter-field"><span>MÊS</span><input id="commissionMonth" type="month" value="${commissionMonth}"></label>
-      </section>
-
-      ${currentUser.role==='gestor'?`<section class="commission-team">
-        <div class="commission-section-heading"><div><span class="section-kicker">EQUIPE</span><h3>Perfis dos vendedores</h3></div><span>${availableSellers.length} vendedores</span></div>
-        <div class="commission-profile-grid">
-          ${availableSellers.map(name=>commissionProfileButton(profileMap.get(name)||{name,photo:''},calculateCommissionSnapshot(salesCache,{seller:name,month:commissionMonth}),name===selectedCommissionSeller)).join('')}
-        </div>
-      </section>`:''}
-
+      ${pageHeader({eyebrow:'MODELO FCA',title:'Comissões',description:'Produção e remuneração variável do mês.',className:'commission-head commission-head-compact',actions:`<label class="commission-month filter-field"><span>MÊS</span><input id="commissionMonth" type="month" value="${commissionMonth}"></label>`})}
+      ${currentUser.role==='gestor'?sellerSelectorToolbarMarkup('commission',selectedCommissionSeller):''}
       <section class="commission-detail commission-detail-v30">
-        <header class="commission-person-head commission-person-head-v30">
+        <header class="commission-person-head commission-person-head-v30 compact">
           <div class="commission-person-main">${commissionAvatar(selectedProfile,'large')}<div><span class="section-kicker">RESUMO DO MÊS</span><h3>${escapeHTML(selectedCommissionSeller)}</h3><small>${formatCommissionMonth(commissionMonth)} · somente vendas OK</small></div></div>
-          <div class="commission-variable-total"><span>VARIÁVEL ATINGIDO</span><strong>${money.format(selectedSnapshot.variableTotal)}</strong><small>Comissão + bonificação + bônus + premiação mensal</small></div>
+          <div class="commission-head-right">${currentUser.role==='gestor'?'<button type="button" class="secondary-action commission-add-bonus" id="addManualBonification"><i data-lucide="gift"></i>Adicionar bonificação</button>':''}<div class="commission-variable-total"><span>VARIÁVEL ATINGIDO</span><strong>${money.format(variableTotal)}</strong><small>inclui bonificações manuais</small></div></div>
         </header>
-
-        <div class="commission-production" aria-label="Produção do mês">
+        <div class="commission-production compact" aria-label="Produção do mês">
           ${commissionMetric('banknote','Faturado',money.format(selectedSnapshot.revenue))}
           ${commissionMetric('credit-card','Quitado / Cartão',money.format(selectedSnapshot.quitadoRevenue))}
           ${commissionMetric('graduation-cap','Matrículas',String(selectedSnapshot.enrollments))}
           ${commissionMetric('barcode','Boletos',String(selectedSnapshot.boletos))}
           ${commissionMetric('layers-3','Matrículas em boleto',String(selectedSnapshot.boletoEnrollments))}
         </div>
-
-        <section class="commission-summary-grid">
-          ${remunerationSummaryCard('wallet-cards','Fixo base',money.format(FCA_BASE_SALARY),'Separado da comissão variável.','base')}
-          ${remunerationSummaryCard('badge-dollar-sign','Comissão',money.format(selectedSnapshot.commissionTotal),'Somente as faixas de matrícula e quitado.','commission')}
-          ${remunerationSummaryCard('gift','Bonificação',money.format(selectedSnapshot.bonificationTotal),'Produção de matrículas em boleto.','bonification')}
-          ${remunerationSummaryCard('sparkles','Bônus',money.format(selectedSnapshot.bonusTotal),'Superação das metas de boleto e quitado.','bonus')}
-          ${remunerationSummaryCard('trophy','Premiação',money.format(selectedSnapshot.premiationTotal),selectedSnapshot.ranking.position?`${selectedSnapshot.ranking.position}º no ranking mensal de quitado`:'Sem posição premiada','premiation')}
+        <section class="commission-summary-grid compact">
+          ${remunerationSummaryCard('wallet-cards','Fixo base',money.format(FCA_BASE_SALARY),'Base salarial.','base')}
+          ${remunerationSummaryCard('badge-dollar-sign','Comissão',money.format(selectedSnapshot.commissionTotal),'Matrícula + quitado.','commission')}
+          ${remunerationSummaryCard('gift','Bonificação',money.format(bonificationTotal),manualTotal?`Inclui ${money.format(manualTotal)} manual.`:'Produção em boleto.','bonification')}
+          ${remunerationSummaryCard('sparkles','Bônus',money.format(selectedSnapshot.bonusTotal),'Superação de metas.','bonus')}
+          ${remunerationSummaryCard('trophy','Premiação',money.format(selectedSnapshot.premiationTotal),selectedSnapshot.ranking.position?`${selectedSnapshot.ranking.position}º no ranking mensal`:'Sem posição premiada','premiation')}
         </section>
-
+        ${manualBonifications.length?`<section class="commission-manual-section"><div class="commission-manual-head"><div><span class="section-kicker">BONIFICAÇÕES ADICIONADAS</span><h3>Ajustes do gestor</h3></div><strong>${money.format(manualTotal)}</strong></div><div class="commission-manual-list">${manualBonificationMarkup(manualBonifications)}</div></section>`:''}
         <section class="remuneration-breakdown">
           ${commissionCategoryMarkup(selectedSnapshot)}
           ${bonificationCategoryMarkup(selectedSnapshot)}
           ${bonusCategoryMarkup(selectedSnapshot,goals)}
           ${premiationCategoryMarkup(selectedSnapshot)}
         </section>
-
-        <section class="commission-rules-note">
-          <i data-lucide="info"></i>
-          <div><strong>Regras de aplicação</strong><p>Os valores exibidos são atingidos pela produção cadastrada. Bônus e premiações que exigem 3 meses dependem da validação de elegibilidade. Matrículas canceladas dentro de 7 dias não devem compor o comissionamento.</p></div>
-        </section>
+        <section class="commission-rules-note"><i data-lucide="info"></i><div><strong>Regras de aplicação</strong><p>Os valores automáticos seguem as faixas FCA. Bonificações manuais são lançadas pelo gestor e somadas separadamente ao variável do vendedor.</p></div></section>
       </section>`;
 
-    $('#commissionMonth').addEventListener('change',e=>{ commissionMonth=e.target.value||todayISO().slice(0,7); renderCommissions(); });
-    content.querySelectorAll('[data-commission-seller]').forEach(button=>button.addEventListener('click',()=>{ selectedCommissionSeller=button.dataset.commissionSeller; renderCommissions(); }));
+    $('#commissionMonth').addEventListener('change',e=>{commissionMonth=e.target.value||todayISO().slice(0,7);renderCommissions();});
+    if(currentUser.role==='gestor'){
+      bindSellerSelectorControls({context:'commission',sellerName:selectedCommissionSeller,onSelect:name=>{selectedCommissionSeller=name;renderCommissions();}});
+      $('#addManualBonification')?.addEventListener('click',()=>openAddBonificationModal(selectedCommissionSeller));
+      content.querySelectorAll('[data-remove-bonification]').forEach(button=>button.addEventListener('click',async()=>{if(!confirm('Remover esta bonificação?'))return;button.disabled=true;try{await CommissionAdjustmentsRepository.remove(button.dataset.removeBonification);toast('Bonificação removida.');renderCommissions();}catch(error){button.disabled=false;toast(error.message||'Não foi possível remover a bonificação.','error');}}));
+    }
     refreshIcons();
-  }catch(error){ content.innerHTML=`<section class="seller-dashboard-loading error"><i data-lucide="circle-alert"></i><strong>${escapeHTML(error.message||'Não foi possível calcular as comissões.')}</strong></section>`; refreshIcons(); }
+  }catch(error){content.innerHTML=errorState(error.message||'Não foi possível calcular as comissões.');refreshIcons();}
 }
 
 function commissionProfileButton(profile,snapshot,active){
@@ -1867,80 +2127,52 @@ function adjacentIndicatorSeller(name,direction=1){
   const index=Math.max(sellers.indexOf(name),0);
   return sellers[(index+direction+sellers.length)%sellers.length];
 }
-function normalizeSellerSearch(value=''){
-  return String(value).normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase().trim();
-}
-function managerSellerToolbarMarkup(sellerName,showNavigator){
-  const previous=adjacentIndicatorSeller(sellerName,-1);
-  const next=adjacentIndicatorSeller(sellerName,1);
-  return `<section class="manager-seller-toolbar">
-    <button type="button" id="backToIndicators" class="manager-back-button"><i data-lucide="arrow-left"></i><span>Voltar aos indicadores</span></button>
-    <div class="manager-seller-current"><span>VISUALIZANDO</span><strong>${escapeHTML(sellerName)}</strong></div>
-    <div class="manager-seller-actions">
-      <button type="button" id="previousIndicatorSeller" class="manager-seller-nav" title="Vendedor anterior: ${escapeHTML(previous)}"><i data-lucide="chevron-left"></i><span>Anterior</span></button>
-      <button type="button" id="toggleSellerDirectory" class="manager-directory-button ${showNavigator?'active':''}"><i data-lucide="users-round"></i><span>${showNavigator?'Fechar vendedores':'Ver todos os vendedores'}</span></button>
-      <button type="button" id="nextIndicatorSeller" class="manager-seller-nav manager-seller-nav-next" title="Próximo vendedor: ${escapeHTML(next)}"><span>Próximo</span><small>${escapeHTML(next)}</small><i data-lucide="chevron-right"></i></button>
+
+function sellerSelectorToolbarMarkup(context,sellerName){
+  const sellers=indicatorSellerOrder(),previous=adjacentIndicatorSeller(sellerName,-1),next=adjacentIndicatorSeller(sellerName,1),label=context==='commission'?'Vendedor':'Vendedor';
+  return `<section class="seller-selection-toolbar compact" data-seller-selector="${context}">
+    <label class="seller-selection-field"><span>${label}</span><select id="${context}SellerSelect">${sellers.map(name=>`<option value="${escapeHTML(name)}" ${name===sellerName?'selected':''}>${escapeHTML(name)}</option>`).join('')}</select></label>
+    <div class="seller-selection-nav">
+      <button type="button" class="seller-selection-step" data-${context}-seller-prev title="Vendedor anterior: ${escapeHTML(previous)}"><i data-lucide="chevron-left"></i><span>Anterior</span></button>
+      <button type="button" class="seller-selection-step seller-selection-next" data-${context}-seller-next title="Próximo vendedor: ${escapeHTML(next)}"><span>Próximo</span><i data-lucide="chevron-right"></i></button>
     </div>
   </section>`;
-}
-function managerSellerDirectoryMarkup(sellerName){
-  const sellers=indicatorSellerOrder();
-  return `<section class="manager-seller-directory">
-    <div class="manager-directory-head">
-      <div><span class="section-kicker">TODOS OS VENDEDORES</span><h3>Localize um dashboard</h3></div>
-      <label class="manager-seller-search"><i data-lucide="search"></i><input id="managerSellerSearch" type="search" placeholder="Pesquisar vendedor" autocomplete="off"></label>
-    </div>
-    <div id="managerSellerDirectoryList" class="manager-directory-list">
-      ${sellers.map(name=>`<button type="button" class="manager-directory-person${name===sellerName?' active':''}" data-manager-seller="${escapeHTML(name)}"><span>${escapeHTML(userInitials(name))}</span><strong>${escapeHTML(name)}</strong><i data-lucide="arrow-up-right"></i></button>`).join('')}
-    </div>
-    <div id="managerSellerSearchEmpty" class="manager-directory-empty is-hidden">Nenhum vendedor encontrado.</div>
-  </section>`;
-}
-function bindManagerSellerViewer(sellerName,showNavigator){
-  $('#backToIndicators')?.addEventListener('click',()=>renderIndicators());
-  $('#previousIndicatorSeller')?.addEventListener('click',()=>{
-    const target=adjacentIndicatorSeller(sellerName,-1); selectedIndicatorSeller=target;
-    renderSellerDashboard({sellerName:target,managerView:true,showNavigator});
-  });
-  $('#nextIndicatorSeller')?.addEventListener('click',()=>{
-    const target=adjacentIndicatorSeller(sellerName,1); selectedIndicatorSeller=target;
-    renderSellerDashboard({sellerName:target,managerView:true,showNavigator});
-  });
-  $('#toggleSellerDirectory')?.addEventListener('click',()=>renderSellerDashboard({sellerName,managerView:true,showNavigator:!showNavigator}));
-  content.querySelectorAll('[data-manager-seller]').forEach(button=>button.addEventListener('click',()=>{
-    const target=button.dataset.managerSeller; selectedIndicatorSeller=target;
-    renderSellerDashboard({sellerName:target,managerView:true,showNavigator:true});
-  }));
-  const search=$('#managerSellerSearch');
-  if(search){
-    const filter=()=>{
-      const query=normalizeSellerSearch(search.value);
-      let visible=0;
-      content.querySelectorAll('[data-manager-seller]').forEach(button=>{
-        const matches=!query || normalizeSellerSearch(button.dataset.managerSeller).includes(query);
-        button.classList.toggle('is-hidden',!matches); if(matches) visible++;
-      });
-      $('#managerSellerSearchEmpty')?.classList.toggle('is-hidden',visible>0);
-    };
-    search.addEventListener('input',filter);
-    search.addEventListener('keydown',event=>{
-      if(event.key!=='Enter') return;
-      event.preventDefault();
-      const first=[...content.querySelectorAll('[data-manager-seller]')].find(button=>!button.classList.contains('is-hidden'));
-      if(first) first.click();
-    });
-    setTimeout(()=>search.focus({preventScroll:true}),0);
-  }
 }
 
-async function renderSellerDashboard({sellerName="",managerView=false,showNavigator=false}={}){
+function bindSellerSelectorControls({context,sellerName,onSelect}){
+  const select=$(`#${context}SellerSelect`);
+  select?.addEventListener('change',()=>onSelect(select.value));
+  content.querySelector(`[data-${context}-seller-prev]`)?.addEventListener('click',()=>onSelect(adjacentIndicatorSeller(sellerName,-1)));
+  content.querySelector(`[data-${context}-seller-next]`)?.addEventListener('click',()=>onSelect(adjacentIndicatorSeller(sellerName,1)));
+}
+
+function managerSellerToolbarMarkup(sellerName){
+  const previous=adjacentIndicatorSeller(sellerName,-1),next=adjacentIndicatorSeller(sellerName,1),sellers=indicatorSellerOrder();
+  return `<section class="manager-seller-toolbar compact">
+    <button type="button" id="backToIndicators" class="manager-back-button"><i data-lucide="arrow-left"></i><span>Indicadores</span></button>
+    <label class="manager-seller-select"><span>VENDEDOR</span><select id="managerSellerSelect">${sellers.map(name=>`<option value="${escapeHTML(name)}" ${name===sellerName?'selected':''}>${escapeHTML(name)}</option>`).join('')}</select></label>
+    <div class="manager-seller-actions">
+      <button type="button" id="previousIndicatorSeller" class="manager-seller-nav" title="Vendedor anterior: ${escapeHTML(previous)}"><i data-lucide="chevron-left"></i><span>Anterior</span></button>
+      <button type="button" id="nextIndicatorSeller" class="manager-seller-nav" title="Próximo vendedor: ${escapeHTML(next)}"><span>Próximo</span><i data-lucide="chevron-right"></i></button>
+    </div>
+  </section>`;
+}
+
+function bindManagerSellerViewer(sellerName){
+  $('#backToIndicators')?.addEventListener('click',()=>renderIndicators());
+  $('#managerSellerSelect')?.addEventListener('change',event=>{const target=event.target.value;selectedIndicatorSeller=target;renderSellerDashboard({sellerName:target,managerView:true});});
+  $('#previousIndicatorSeller')?.addEventListener('click',()=>{const target=adjacentIndicatorSeller(sellerName,-1);selectedIndicatorSeller=target;renderSellerDashboard({sellerName:target,managerView:true});});
+  $('#nextIndicatorSeller')?.addEventListener('click',()=>{const target=adjacentIndicatorSeller(sellerName,1);selectedIndicatorSeller=target;renderSellerDashboard({sellerName:target,managerView:true});});
+}
+
+async function renderSellerDashboard({sellerName="",managerView=false}={}){
   const isManagerView=currentUser?.role==='gestor' && managerView;
   if(currentUser?.role!=='vendedor' && !isManagerView) return renderDashboard({mode:'geral'});
   const targetSeller=isManagerView?(sellerName||selectedIndicatorSeller||indicatorSellerOrder()[0]):currentUser.name;
   if(isManagerView) selectedIndicatorSeller=targetSeller;
   const dashboardMonth=isManagerView?indicatorsMonth:sellerDashboardMonth;
   destroyCharts();
-  content.innerHTML=`<section class="seller-dashboard-loading"><i data-lucide="loader-circle" class="spin"></i><strong>Carregando seu desempenho...</strong></section>`; refreshIcons();
+  content.innerHTML=loadingState('Carregando seu desempenho...'); refreshIcons();
   try{
     const goals=await GoalsRepository.getForSeller(targetSeller,dashboardMonth);
     const data=calculateSellerDashboard(salesCache,{month:dashboardMonth,seller:targetSeller,goals});
@@ -1967,12 +2199,8 @@ async function renderSellerDashboard({sellerName="",managerView=false,showNaviga
       </article>`;
     };
     content.innerHTML=`
-      ${isManagerView?managerSellerToolbarMarkup(targetSeller,showNavigator):''}
-      ${isManagerView&&showNavigator?managerSellerDirectoryMarkup(targetSeller):''}
-      <section class="seller-dashboard-head seller-dashboard-head-rich">
-        <div><span class="eyebrow">${isManagerView?'DASHBOARD DO VENDEDOR':'MEU DASHBOARD'}</span><h2>${escapeHTML(targetSeller)}</h2><p>${isManagerView?'Visualização individual pela área de indicadores.':'Leitura do mês com base somente nas vendas aprovadas pela auditoria.'}</p></div>
-        <label class="seller-month-filter"><span>MÊS</span><input id="sellerDashboardMonth" type="month" value="${dashboardMonth}"></label>
-      </section>
+      ${isManagerView?managerSellerToolbarMarkup(targetSeller):''}
+      ${pageHeader({eyebrow:isManagerView?'DASHBOARD DO VENDEDOR':'MEU DASHBOARD',title:targetSeller,description:isManagerView?'Visualização individual pela área de indicadores.':'Leitura do mês com base somente nas vendas aprovadas pela auditoria.',className:'seller-dashboard-head seller-dashboard-head-rich',actions:`<label class="seller-month-filter"><span>MÊS</span><input id="sellerDashboardMonth" type="month" value="${dashboardMonth}"></label>`})}
 
       <section class="seller-mood-banner ${'mood-'+mood.mood}">
         <div class="seller-mood-emoji ${mood.mood}" aria-hidden="true"><span>${mood.emoji}</span></div>
@@ -2032,35 +2260,54 @@ async function renderSellerDashboard({sellerName="",managerView=false,showNaviga
         <article class="chart-panel seller-chart-secondary"><div class="panel-heading"><div><span>MIX</span><h3>Distribuição por pagamento</h3></div><i data-lucide="chart-pie"></i></div><div class="chart-box"><canvas id="sellerMixChart"></canvas></div></article>
         <article class="chart-panel chart-full seller-chart-secondary seller-chart-performance"><div class="panel-heading"><div><span>COMPARATIVO</span><h3>Atingido x projeção das metas</h3></div><i data-lucide="chart-column-big"></i></div><div class="chart-box medium"><canvas id="sellerPerformanceChart"></canvas></div></article>
       </section>`;
-    $('#sellerDashboardMonth').addEventListener('change',e=>{ const value=e.target.value||todayISO().slice(0,7); if(isManagerView){indicatorsMonth=value; renderSellerDashboard({sellerName:targetSeller,managerView:true,showNavigator});}else{sellerDashboardMonth=value; renderSellerDashboard();} });
-    if(isManagerView) bindManagerSellerViewer(targetSeller,showNavigator);
+    $('#sellerDashboardMonth').addEventListener('change',e=>{ const value=e.target.value||todayISO().slice(0,7); if(isManagerView){indicatorsMonth=value; renderSellerDashboard({sellerName:targetSeller,managerView:true});}else{sellerDashboardMonth=value; renderSellerDashboard();} });
+    if(isManagerView) bindManagerSellerViewer(targetSeller);
     renderSellerCharts(content,data);
     refreshIcons();
-  }catch(error){ content.innerHTML=`<section class="seller-dashboard-loading error"><i data-lucide="circle-alert"></i><strong>${escapeHTML(error.message||'Não foi possível carregar o dashboard.')}</strong></section>`; refreshIcons(); }
+  }catch(error){ content.innerHTML=errorState(error.message||'Não foi possível carregar o dashboard.'); refreshIcons(); }
 }
 
 function indicatorGoalInput(icon,label,name,value,type='number'){
   return `<label class="indicator-goal-field"><span class="indicator-goal-icon"><i data-lucide="${icon}"></i></span><span class="indicator-goal-copy"><small>${label}</small><input name="${name}" ${type==='money'?'inputmode="decimal"':'type="number" min="0" step="1"'} value="${value||''}" placeholder="${type==='money'?'R$ 0,00':'0'}"></span></label>`;
 }
+
+function indicatorDashboardInlineMarkup(sellerName,data){
+  const revenueGoal=Number(data.revenue.goal||0);
+  const paceClass=!revenueGoal?'neutral':data.revenue.gap>=0?'ahead':'behind';
+  const paceText=!revenueGoal?'Meta de faturamento ainda não definida':data.revenue.gap>=0?'Acima do ritmo esperado':'Abaixo do ritmo esperado';
+  return `<section class="indicator-live-dashboard">
+    <div class="indicator-live-head"><div><span class="section-kicker">PAINEL DO VENDEDOR</span><h3>${escapeHTML(sellerName)}</h3><p>Leitura automática somente com vendas aprovadas pela auditoria.</p></div><span class="indicator-live-status ${paceClass}">${paceText}</span></div>
+    <div class="indicator-live-summary">
+      <div class="primary"><span>Faturado no mês</span><strong>${money.format(data.revenue.actual)}</strong><small>${revenueGoal?`${data.revenue.pct.toFixed(1).replace('.',',')}% da meta`:'Sem meta definida'}</small></div>
+      <div><span>Matrículas</span><strong>${data.enroll.actual}</strong><small>${data.enroll.goal?`${data.enroll.pct.toFixed(1).replace('.',',')}% da meta`:'Sem meta'}</small></div>
+      <div><span>Boletos</span><strong>${data.boleto.actual}</strong><small>${data.boleto.goal?`${data.boleto.pct.toFixed(1).replace('.',',')}% da meta`:'Sem meta'}</small></div>
+      <div><span>Faturado hoje</span><strong>${money.format(data.today.revenue)}</strong><small>${data.today.sales} vendas OK hoje</small></div>
+      <div><span>Projeção</span><strong>${money.format(data.revenue.projection)}</strong><small>${data.remainingBusinessDays} dias úteis restantes</small></div>
+    </div>
+    <div class="indicator-live-goals">
+      ${sellerGoalRow({kind:'revenue',icon:'banknote',label:'Faturamento',metric:data.revenue})}
+      ${sellerGoalRow({kind:'enroll',icon:'graduation-cap',label:'Matrículas',metric:data.enroll})}
+      ${sellerGoalRow({kind:'boleto',icon:'barcode',label:'Boletos',metric:data.boleto})}
+    </div>
+  </section>`;
+}
 async function renderIndicators(){
   if(currentUser.role!=='gestor') return renderSellerDashboard();
-  content.innerHTML=`<section class="seller-dashboard-loading"><i data-lucide="loader-circle" class="spin"></i><strong>Carregando indicadores...</strong></section>`; refreshIcons();
+  const sellers=indicatorSellerOrder();
+  if(!selectedIndicatorSeller || !sellers.includes(selectedIndicatorSeller)) selectedIndicatorSeller=sellers[0]||'';
+  content.innerHTML=loadingState('Carregando indicadores...'); refreshIcons();
   try{
     const [currentGoal,monthGoals]=await Promise.all([
       GoalsRepository.getForSeller(selectedIndicatorSeller,indicatorsMonth),
       GoalsRepository.listMonth(indicatorsMonth)
     ]);
-    const map=new Map(monthGoals.map(item=>[item.seller_name,item]));
+    const data=calculateSellerDashboard(salesCache,{month:indicatorsMonth,seller:selectedIndicatorSeller,goals:currentGoal});
+    const configured=monthGoals.filter(goal=>goal && (goal.revenue_goal||goal.enrollment_goal||goal.boleto_goal||goal.quitado_goal)).length;
     content.innerHTML=`
-      <section class="indicators-head">
-        <div><span class="eyebrow">GESTÃO DE METAS</span><h2>Indicadores</h2><p>Defina as três metas mensais que alimentam o dashboard individual de cada vendedor.</p></div>
-        <div class="indicator-head-actions">
-          <label class="indicator-month"><span>MÊS DE REFERÊNCIA</span><input id="indicatorsMonth" type="month" value="${indicatorsMonth}"></label>
-          <button type="button" id="viewAllSellerDashboards" class="indicator-view-all"><i data-lucide="layout-dashboard"></i><span>Ver todos os vendedores</span></button>
-        </div>
-      </section>
+      ${pageHeader({eyebrow:'GESTÃO DE METAS',title:'Indicadores',description:'Defina metas e acompanhe o painel do vendedor sem sair da página.',className:'indicators-head',actions:`<div class="indicator-head-actions"><label class="indicator-month"><span>MÊS DE REFERÊNCIA</span><input id="indicatorsMonth" type="month" value="${indicatorsMonth}"></label><span class="indicator-configured-count">${configured}/${SELLERS.length} configurados</span></div>`})}
+      ${sellerSelectorToolbarMarkup('indicator',selectedIndicatorSeller)}
       <section class="indicator-editor">
-        <div class="indicator-seller-selector"><span>VENDEDOR</span><select id="indicatorSeller">${SELLERS.map(v=>`<option ${v===selectedIndicatorSeller?'selected':''}>${v}</option>`).join('')}</select></div>
+        <div class="indicator-editor-title"><span class="section-kicker">METAS DE ${escapeHTML(selectedIndicatorSeller).toUpperCase()}</span><h3>Configuração mensal</h3><p>As alterações alimentam o dashboard e os bônus FCA deste vendedor.</p></div>
         <form id="indicatorGoalForm" class="indicator-goal-form">
           ${indicatorGoalInput('banknote','Meta de faturamento','revenue_goal',currentGoal.revenue_goal,'money')}
           ${indicatorGoalInput('graduation-cap','Meta de matrículas','enrollment_goal',currentGoal.enrollment_goal)}
@@ -2069,17 +2316,13 @@ async function renderIndicators(){
           <button class="primary-action indicator-save" type="submit"><i data-lucide="save"></i>Salvar metas</button>
         </form>
       </section>
-      <div class="indicator-remuneration-note"><i data-lucide="badge-dollar-sign"></i><span>As metas de boleto e quitado também alimentam automaticamente os bônus FCA na área Comissões.</span></div>
-      <section class="indicator-team-section">
-        <div class="indicator-team-heading"><div><span class="section-kicker">EQUIPE</span><h3>Metas de ${new Intl.DateTimeFormat('pt-BR',{month:'long',year:'numeric'}).format(new Date(`${indicatorsMonth}-01T12:00:00`))}</h3></div><span>${monthGoals.length} de ${SELLERS.length} vendedores configurados</span></div>
-        <div class="indicator-team-list">
-          ${SELLERS.map(name=>indicatorTeamRow(name,map.get(name))).join('')}
-        </div>
-      </section>`;
+      <div class="indicator-remuneration-note"><i data-lucide="badge-dollar-sign"></i><span>As metas de boleto e quitado alimentam automaticamente os bônus FCA na área Comissões.</span></div>
+      ${indicatorDashboardInlineMarkup(selectedIndicatorSeller,data)}`;
     $('#indicatorsMonth').addEventListener('change',e=>{ indicatorsMonth=e.target.value||todayISO().slice(0,7); renderIndicators(); });
-    $('#indicatorSeller').addEventListener('change',e=>{ selectedIndicatorSeller=e.target.value; renderIndicators(); });
-    content.querySelectorAll('[data-indicator-seller]').forEach(btn=>btn.addEventListener('click',()=>{ selectedIndicatorSeller=btn.dataset.indicatorSeller; renderSellerDashboard({sellerName:selectedIndicatorSeller,managerView:true,showNavigator:false}); }));
-    $('#viewAllSellerDashboards')?.addEventListener('click',()=>{ const seller=selectedIndicatorSeller||indicatorSellerOrder()[0]; renderSellerDashboard({sellerName:seller,managerView:true,showNavigator:true}); });
+    bindSellerSelectorControls({
+      context:'indicator',sellerName:selectedIndicatorSeller,
+      onSelect:name=>{selectedIndicatorSeller=name;renderIndicators();}
+    });
     $('#indicatorGoalForm').addEventListener('submit',async e=>{
       e.preventDefault(); const form=new FormData(e.currentTarget); const button=e.currentTarget.querySelector('button[type="submit"]');
       button.disabled=true; button.innerHTML='<i data-lucide="loader-circle" class="spin"></i>Salvando'; refreshIcons();
@@ -2089,8 +2332,9 @@ async function renderIndicators(){
       }catch(error){ toast(error.message||'Não foi possível salvar as metas.','error'); button.disabled=false; }
     });
     refreshIcons();
-  }catch(error){ content.innerHTML=`<section class="seller-dashboard-loading error"><i data-lucide="circle-alert"></i><strong>${escapeHTML(error.message||'Não foi possível carregar os indicadores.')}</strong></section>`; refreshIcons(); }
+  }catch(error){ content.innerHTML=errorState(error.message||'Não foi possível carregar os indicadores.'); refreshIcons(); }
 }
+
 function indicatorTeamRow(name,goal){
   const configured=Boolean(goal && (goal.revenue_goal || goal.enrollment_goal || goal.boleto_goal || goal.quitado_goal));
   return `<button type="button" class="indicator-team-row${name===selectedIndicatorSeller?' active':''}" data-indicator-seller="${escapeHTML(name)}">

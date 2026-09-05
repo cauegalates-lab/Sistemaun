@@ -12,7 +12,9 @@ service cloud.firestore {
 
     match /users/{uid} {
       allow read: if active() && (request.auth.uid == uid || isManager());
-      allow create, update, delete: if false;
+      allow update: if active() && request.auth.uid == uid &&
+        request.resource.data.diff(resource.data).affectedKeys().hasOnly(['photo_url','photo_path','updated_at']);
+      allow create, delete: if false;
     }
 
     match /sales/{saleId} {
@@ -30,7 +32,7 @@ service cloud.firestore {
           'audit_status','audited_by','audited_at','sheet_sync_status','sheet_synced_at','sheet_sync_error','updated_at'
         ])) ||
         (isSeller() && resource.data.seller_uid == request.auth.uid &&
-          request.resource.data.diff(resource.data).affectedKeys().hasOnly(['receipts','updated_at']))
+          request.resource.data.diff(resource.data).affectedKeys().hasOnly(['receipts','updated_at','sheet_sync_status','sheet_sync_error']))
       );
 
       allow delete: if isManager();
@@ -74,6 +76,18 @@ service cloud.firestore {
       allow delete: if isManager();
     }
 
+    match /commission_adjustments/{adjustmentId} {
+      allow read: if active() && (
+        isManager() || (isSeller() && resource.data.seller_uid == request.auth.uid)
+      );
+      allow create, update, delete: if isManager();
+    }
+
+    match /system_health/{healthId} {
+      allow read: if active();
+      allow write: if false;
+    }
+
     match /fca_weekly_goals/{goalId} {
       allow read: if active() && (isManager() || (isSeller() && resource.data.seller_uid == request.auth.uid));
       allow create, update, delete: if isManager();
@@ -85,7 +99,7 @@ service cloud.firestore {
       allow update: if active() && (
         isManager() ||
         (isSeller() && resource.data.seller_uid == request.auth.uid && resource.data.closed == false &&
-          request.resource.data.diff(resource.data).affectedKeys().hasOnly(['tasks','updated_at']))
+          request.resource.data.diff(resource.data).affectedKeys().hasOnly(['tasks','task_catalog','updated_at']))
       );
       allow delete: if isManager();
     }

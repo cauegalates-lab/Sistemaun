@@ -1,0 +1,9 @@
+import { auth,db,getActiveProfile,resolveUserUidByName,collection,query,where,getDocs,doc,setDoc,deleteDoc } from './firebase.js';
+import { uid } from './utils.js';
+function requireProfile(){const p=getActiveProfile();if(!auth.currentUser||!p)throw new Error('Sua sessão expirou. Entre novamente.');return p;}
+function normalize(raw={}){return {id:raw.id||'',seller_name:raw.seller_name||'',seller_uid:raw.seller_uid||'',month:raw.month||'',title:raw.title||'',amount:Math.max(Number(raw.amount||0),0),created_by:raw.created_by||'',created_by_uid:raw.created_by_uid||'',created_at:raw.created_at||''};}
+export const CommissionAdjustmentsRepository={
+  async listForSeller(sellerName,month){const p=requireProfile();if(p.role==='auditoria')return[];const sellerUid=p.role==='vendedor'?p.uid:await resolveUserUidByName(sellerName);if(!sellerUid)return[];const snap=await getDocs(query(collection(db,'commission_adjustments'),where('seller_uid','==',sellerUid)));return snap.docs.map(d=>normalize({id:d.id,...d.data()})).filter(r=>r.month===month).sort((a,b)=>String(b.created_at).localeCompare(String(a.created_at)));},
+  async add({seller_name,month,title,amount}){const p=requireProfile();if(p.role!=='gestor')throw new Error('Somente o gestor pode adicionar bonificações.');const sellerUid=await resolveUserUidByName(seller_name);if(!sellerUid)throw new Error('Vendedor não cadastrado no Firebase.');const id=uid(),now=new Date().toISOString();const row=normalize({id,seller_name,seller_uid:sellerUid,month,title,amount,created_by:p.name,created_by_uid:p.uid,created_at:now});await setDoc(doc(db,'commission_adjustments',id),row);return row;},
+  async remove(id){const p=requireProfile();if(p.role!=='gestor')throw new Error('Somente o gestor pode remover bonificações.');await deleteDoc(doc(db,'commission_adjustments',id));return true;}
+};

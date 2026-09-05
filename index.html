@@ -54,17 +54,56 @@
             </label>
             <p id="loginError" class="login-error" role="alert"></p>
             <button class="primary-button" type="submit">Entrar</button>
+            <button id="forgotPasswordButton" class="login-text-action" type="button"><i data-lucide="key-round"></i><span>Esqueci minha senha</span></button>
           </div>
 
-          <div class="demo-access" aria-label="Acessos rápidos para pré-visualização">
-            <span>Acessos rápidos</span>
-            <div class="demo-buttons">
-              <button type="button" data-demo="vendedor">Vendedor</button>
-              <button type="button" data-demo="gestor">Gestor</button>
-              <button type="button" data-demo="auditoria">Auditoria</button>
-            </div>
-          </div>
+          <button id="firstAccessButton" class="login-first-access" type="button"><i data-lucide="user-plus"></i><span>Primeiro acesso</span></button>
         </form>
+
+        <section id="firstAccessView" class="login-inline-flow" hidden aria-label="Primeiro acesso">
+          <div class="login-inline-head">
+            <span>PRIMEIRO ACESSO</span>
+            <h2>Crie seu acesso</h2>
+            <p>Cadastre seu usuário uma única vez neste dispositivo. Depois disso, a tela exibirá somente o login normal.</p>
+          </div>
+          <form id="firstAccessForm" class="login-inline-form" autocomplete="off">
+            <label class="field"><span>Seu nome</span><div class="field-control"><i data-lucide="user-round-check"></i><select name="seller_name" required><option value="">Selecione seu nome</option></select></div></label>
+            <label class="field"><span>Login</span><div class="field-control"><i data-lucide="at-sign"></i><input name="login" autocomplete="username" placeholder="ex.: caue.galates" required /></div></label>
+            <div class="login-inline-pair">
+              <label class="field"><span>Senha</span><div class="field-control"><i data-lucide="lock-keyhole"></i><input name="password" type="password" autocomplete="new-password" minlength="8" placeholder="Mínimo 8 caracteres" required /></div></label>
+              <label class="field"><span>Confirmar senha</span><div class="field-control"><i data-lucide="shield-check"></i><input name="confirm_password" type="password" autocomplete="new-password" minlength="8" required /></div></label>
+            </div>
+            <label class="field"><span>Código de primeiro acesso</span><div class="field-control"><i data-lucide="key-square"></i><input name="access_code" type="password" autocomplete="one-time-code" placeholder="Código fornecido pelo gestor" required /></div></label>
+            <div class="login-inline-note"><i data-lucide="shield-check"></i><span>O cadastro é criado pela API da Vercel no Firebase Authentication e vinculado ao perfil comercial.</span></div>
+            <div class="login-inline-actions">
+              <button id="cancelFirstAccess" class="login-secondary-button" type="button"><i data-lucide="arrow-left"></i>Voltar</button>
+              <button class="primary-button" type="submit"><i data-lucide="user-plus"></i>Criar acesso</button>
+            </div>
+            <p id="firstAccessError" class="login-error" role="alert"></p>
+          </form>
+        </section>
+
+        <section id="passwordResetView" class="login-inline-flow" hidden aria-label="Redefinir senha">
+          <div class="login-inline-head">
+            <span>RECUPERAÇÃO DE ACESSO</span>
+            <h2>Redefinir senha</h2>
+            <p>Informe seu usuário, o código de recuperação do gestor e defina uma nova senha.</p>
+          </div>
+          <form id="passwordResetForm" class="login-inline-form" autocomplete="off">
+            <label class="field"><span>Usuário</span><div class="field-control"><i data-lucide="user-round"></i><input name="login" autocomplete="username" placeholder="Digite seu usuário" required /></div></label>
+            <label class="field"><span>Código de recuperação</span><div class="field-control"><i data-lucide="key-square"></i><input name="reset_code" type="password" autocomplete="one-time-code" placeholder="Código do gestor" required /></div></label>
+            <div class="login-inline-pair">
+              <label class="field"><span>Nova senha</span><div class="field-control"><i data-lucide="lock-keyhole"></i><input name="password" type="password" autocomplete="new-password" minlength="8" placeholder="Mínimo 8 caracteres" required /></div></label>
+              <label class="field"><span>Confirmar senha</span><div class="field-control"><i data-lucide="shield-check"></i><input name="confirm_password" type="password" autocomplete="new-password" minlength="8" required /></div></label>
+            </div>
+            <div class="login-inline-note"><i data-lucide="info"></i><span>O código de recuperação não fica no navegador. Ele é validado somente na API da Vercel.</span></div>
+            <div class="login-inline-actions">
+              <button id="cancelPasswordReset" class="login-secondary-button" type="button"><i data-lucide="arrow-left"></i>Voltar</button>
+              <button class="primary-button" type="submit"><i data-lucide="rotate-ccw-key"></i>Salvar nova senha</button>
+            </div>
+            <p id="passwordResetError" class="login-error" role="alert"></p>
+          </form>
+        </section>
       </section>
     </main>
   </div>

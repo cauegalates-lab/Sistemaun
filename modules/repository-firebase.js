@@ -29,16 +29,28 @@ async function getSaleSnapshot(id) {
   return snapshot;
 }
 
-async function requestSheetSync(saleId) {
+async function requestSheetQueue(saleId='') {
   const token = await auth.currentUser.getIdToken();
-  const response = await fetch('/api/sheet-sync', {
+  const response = await fetch('/api/sheet-sync-queue', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+    body: JSON.stringify({ sale_id: saleId, limit: 20 })
+  });
+  const payload = await response.json().catch(() => ({}));
+  if (!response.ok) throw new Error(payload.error || `Sincronização HTTP ${response.status}`);
+  return payload;
+}
+
+async function requestSheetDelete(saleId) {
+  const token = await auth.currentUser.getIdToken();
+  const response = await fetch('/api/sheet-delete', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
     body: JSON.stringify({ sale_id: saleId })
   });
   const payload = await response.json().catch(() => ({}));
-  if (!response.ok) throw new Error(payload.error || `Sincronização HTTP ${response.status}`);
-  return payload.sheet_sync || { status: 'not_required' };
+  if (!response.ok) throw new Error(payload.error || `Google Sheets HTTP ${response.status}`);
+  return payload;
 }
 
 function safeName(name) {
@@ -71,7 +83,6 @@ export const SalesRepository = {
     let sellerUid = profile.uid;
     if (profile.role === 'gestor') {
       sellerUid = await resolveUserUidByName(normalized.seller_name);
-      if (!sellerUid) throw new Error('O vendedor selecionado ainda não possui perfil cadastrado no Firebase.');
     }
     const now = new Date().toISOString();
     const row = {
@@ -85,7 +96,8 @@ export const SalesRepository = {
       sheet_sync_status: 'pending', sheet_synced_at: '', sheet_sync_error: ''
     };
     await setDoc(doc(db, 'sales', normalized.id), row);
-    return { sale: normalizeSale(row), source: 'firebase' };
+    requestSheetQueue(normalized.id).catch(() => {});
+    return { sale: normalizeSale(row), source: 'firebase', sheetSync:{status:'queued'} };
   },
 
   async updateAudit(id, status, auditedBy) {
@@ -94,34 +106,17 @@ export const SalesRepository = {
     if (!['pending','ok','not_ok'].includes(status)) throw new Error('Status de auditoria inválido.');
     const saleRef = doc(db, 'sales', id);
     const auditedAt = new Date().toISOString();
-    await updateDoc(saleRef, { audit_status: status, audited_by: auditedBy, audited_at: auditedAt, updated_at: auditedAt });
-
-    let sheetSync = { status: 'not_required' };
-    let snapshot = await getSaleSnapshot(id);
-    let sale = mapSale(snapshot);
-
-    if (status === 'ok') {
-      if (sale.sheet_sync_status === 'synced') {
-        sheetSync = { status: 'already_synced', message: 'Esta venda já está registrada na planilha.' };
-      } else {
-        try {
-          sheetSync = await requestSheetSync(id);
-          if (['synced','already_synced'].includes(sheetSync.status)) {
-            const syncedAt = new Date().toISOString();
-            await updateDoc(saleRef, { sheet_sync_status: 'synced', sheet_synced_at: syncedAt, sheet_sync_error: '', updated_at: syncedAt });
-          } else if (sheetSync.status === 'not_configured') {
-            await updateDoc(saleRef, { sheet_sync_status: 'pending', sheet_sync_error: '', updated_at: new Date().toISOString() });
-          }
-        } catch (error) {
-          const message = String(error?.message || 'Falha ao enviar para a planilha.').slice(0, 500);
-          sheetSync = { status: 'error', message };
-          await updateDoc(saleRef, { sheet_sync_status: 'error', sheet_sync_error: message, updated_at: new Date().toISOString() }).catch(() => {});
-        }
-        snapshot = await getSaleSnapshot(id);
-        sale = mapSale(snapshot);
-      }
-    }
-    return { sale, source: 'firebase', sheetSync };
+    await updateDoc(saleRef, { audit_status: status, audited_by: auditedBy, audited_at: auditedAt, updated_at: auditedAt, sheet_sync_status:'pending', sheet_sync_error:'' });
+    const snapshot = await getSaleSnapshot(id);
+    const sale = mapSale(snapshot);
+    let sheetSync={status:'queued',message:'Atualização adicionada à fila da planilha.'};
+    try{
+      const result=await requestSheetQueue(id);
+      if(result?.failed) sheetSync={status:'error',message:'A venda ficou na fila para nova tentativa automática.'};
+      else if(result?.processed) sheetSync={status:'synced',message:'Venda sincronizada com a planilha.'};
+    }catch(error){sheetSync={status:'queued',message:'A venda ficou na fila e será reenviada automaticamente.'};}
+    const fresh=await getSaleSnapshot(id);
+    return { sale:mapSale(fresh), source:'firebase', sheetSync };
   },
 
   async saveReceipt(id, file) {
@@ -143,12 +138,13 @@ export const SalesRepository = {
     const receipt = { id: receiptId, sale_id: id, path, name: file.name, type, size: file.size, uploaded_at: new Date().toISOString() };
     const receipts = [...sale.receipts, receipt];
     try {
-      await updateDoc(doc(db, 'sales', id), { receipts, updated_at: new Date().toISOString() });
+      await updateDoc(doc(db, 'sales', id), { receipts, updated_at: new Date().toISOString(), sheet_sync_status:'pending', sheet_sync_error:'' });
     } catch (error) {
       await deleteObject(objectRef).catch(() => {});
       throw error;
     }
-    return { sale: normalizeSale({ ...snapshot.data(), id, receipts }), source: 'firebase' };
+    requestSheetQueue(id).catch(() => {});
+    return { sale: normalizeSale({ ...snapshot.data(), id, receipts, sheet_sync_status:'pending' }), source: 'firebase' };
   },
 
   async receiptUrl(sale, receipt) {
@@ -167,8 +163,9 @@ export const SalesRepository = {
       if (!String(error?.code || '').includes('object-not-found')) throw error;
     });
     const receipts = sale.receipts.filter(item => item.id !== receiptId);
-    await updateDoc(doc(db, 'sales', saleId), { receipts, updated_at: new Date().toISOString() });
-    return { sale: normalizeSale({ ...snapshot.data(), id: saleId, receipts }), source: 'firebase' };
+    await updateDoc(doc(db, 'sales', saleId), { receipts, updated_at: new Date().toISOString(), sheet_sync_status:'pending', sheet_sync_error:'' });
+    requestSheetQueue(saleId).catch(() => {});
+    return { sale: normalizeSale({ ...snapshot.data(), id: saleId, receipts, sheet_sync_status:'pending' }), source: 'firebase' };
   },
 
   async remove(id) {
@@ -176,6 +173,7 @@ export const SalesRepository = {
     if (profile.role !== 'gestor') throw new Error('Somente o gestor pode excluir vendas.');
     const snapshot = await getSaleSnapshot(id);
     const sale = mapSale(snapshot);
+    await requestSheetDelete(id);
     await Promise.all(sale.receipts.map(receipt => deleteObject(ref(storage, receipt.path)).catch(() => {})));
     await deleteDoc(doc(db, 'sales', id));
     return { source: 'firebase' };

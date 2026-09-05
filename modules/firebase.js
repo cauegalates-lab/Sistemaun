@@ -50,6 +50,9 @@ export async function loadProfile(firebaseUser = auth.currentUser) {
     role,
     team: data.team || data.time || '',
     sector: data.sector || data.setor || 'Comercial',
+    login: data.login || '',
+    photo_url: data.photo_url || '',
+    photo_path: data.photo_path || '',
     active: data.active !== false
   };
   return activeProfile;

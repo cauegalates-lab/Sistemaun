@@ -15,8 +15,14 @@ function saoPauloDate(now=new Date()){
 function weekStart(date){const d=new Date(`${date}T12:00:00Z`);const day=d.getUTCDay()||7;d.setUTCDate(d.getUTCDate()-(day-1));return d.toISOString().slice(0,10);}
 function isWeekday(date){const d=new Date(`${date}T12:00:00Z`).getUTCDay();return d>=1&&d<=5;}
 function safeId(value){return String(value||'').replace(/[^a-zA-Z0-9_-]/g,'_');}
-const TASKS=['crm_update','no_idle_leads','personalized_videos','min_calls'];
-function defaultTasks(){return Object.fromEntries(TASKS.map(id=>[id,false]));}
+const DEFAULT_TASKS=[
+  {id:'crm_update',label:'Organizar e atualizar o CRM',days:[0,1,2,3,4]},
+  {id:'no_idle_leads',label:'Não deixar nenhum lead parado',days:[0,1,2,3,4]},
+  {id:'personalized_videos',label:'Enviar 5 vídeos personalizados',days:[0,1,2,3,4]},
+  {id:'min_calls',label:'Realizar no mínimo 10 ligações',days:[0,1,2,3,4]}
+];
+function taskCatalog(goal={}){return Array.isArray(goal.assigned_tasks)?goal.assigned_tasks:DEFAULT_TASKS;}
+function defaultTasks(catalog){return Object.fromEntries((catalog||[]).map(task=>[task.id,false]));}
 
 export default async function handler(req,res){
   if(req.method!=='GET'&&req.method!=='POST')return res.status(405).json({ok:false,error:'Method not allowed'});
@@ -43,8 +49,8 @@ export default async function handler(req,res){
       const cumulative=sellerSales.reduce((sum,row)=>sum+Number(row.total_value||0),0);
       const id=`${safeId(seller.uid)}__${date}`,ref=db.collection('fca_weekly_performance').doc(id),existing=await ref.get();
       if(existing.exists&&existing.data()?.closed)continue;
-      const previous=existing.exists?existing.data():{};
-      batch.set(ref,{id,seller_uid:seller.uid,seller_name:seller.name||'',date,week_start:week,tasks:{...defaultTasks(),...(previous.tasks||{})},indicator:goal.indicator||'Faturamento semanal',weekly_target:Number(goal.weekly_target||0),sold_today:daily,cumulative_sold:cumulative,remaining:Math.max(Number(goal.weekly_target||0)-cumulative,0),closed:true,closed_at:new Date().toISOString(),updated_at:new Date().toISOString()},{merge:true});closed++;
+      const previous=existing.exists?existing.data():{},catalog=taskCatalog(goal);
+      batch.set(ref,{id,seller_uid:seller.uid,seller_name:seller.name||'',date,week_start:week,task_catalog:catalog,tasks:{...defaultTasks(catalog),...(previous.tasks||{})},indicator:goal.indicator||'Faturamento semanal',weekly_target:Number(goal.weekly_target||0),sold_today:daily,cumulative_sold:cumulative,remaining:Math.max(Number(goal.weekly_target||0)-cumulative,0),closed:true,closed_at:new Date().toISOString(),updated_at:new Date().toISOString()},{merge:true});closed++;
     }
     if(closed)await batch.commit();
     return res.status(200).json({ok:true,date,week_start:week,closed});
