@@ -110,11 +110,11 @@ Antes do deploy:
 ### Fluxo da fila
 
 - Ao criar ou alterar uma venda, ela recebe `sheet_sync_status: pending`.
-- O front-end chama `/api/backend?action=sheet-sync-queue` em segundo plano.
+- O front-end chama `/api/sheet-sync-queue` em segundo plano.
 - A função adquire um lock no Firestore e processa as vendas **uma por vez**.
 - Erros ficam registrados em `sheet_sync_error` e voltam para a fila nas próximas tentativas.
 - Há uma passagem automática da fila a cada hora pela Vercel.
-- `/api/backend?action=sheet-reconcile` roda diariamente às **11:00 UTC**, correspondente a **08:00 em America/Sao_Paulo**, e compara IDs do Firestore com IDs da planilha, repara faltantes e remove linhas órfãs.
+- `/api/sheet-reconcile` roda diariamente às **11:00 UTC**, correspondente a **08:00 em America/Sao_Paulo**, e compara IDs do Firestore com IDs da planilha, repara faltantes e remove linhas órfãs.
 - O resultado é salvo em `system_health/google_sheets`.
 
 Endpoints envolvidos:
@@ -150,37 +150,3 @@ Nesse modo continuam disponíveis os usuários de teste e os repositórios locai
 - Vendedor vê apenas suas vendas e sua operação.
 - Dashboards, metas atingidas, times e remuneração usam somente vendas `audit_status === "ok"`.
 - O espelho do Google Sheets usa **todas** as vendas para permitir conferência operacional completa.
-
-
-## V42 — Login definitivo e recuperação
-
-- Foto/avatár do login ampliado mantendo a tela sem card.
-- Acessos rápidos removidos da interface. O modo `?preview=1` continua disponível apenas para desenvolvimento, sem botões visíveis.
-- Primeiro acesso agora abre integrado à própria página, sem modal/card.
-- Após criar o primeiro acesso com sucesso, este navegador grava `unifahe.firstAccessCompleted`; o botão de primeiro acesso deixa de aparecer nesse dispositivo. Limpar os dados do navegador faz o botão reaparecer.
-- Recuperação de senha integrada ao login por `/api/backend?action=reset-password`. O código mestre fica somente em `PASSWORD_RESET_CODE` nas variáveis da Vercel e nunca é enviado ao front-end.
-- A redefinição altera a senha no Firebase Authentication e revoga sessões anteriores do usuário.
-
-### Variáveis obrigatórias do login
-
-- `FIRST_ACCESS_CODE`: código autorizado para criação do primeiro acesso.
-- `PASSWORD_RESET_CODE`: código mestre privado usado para redefinir senha. Use um código longo e aleatório e não compartilhe com vendedores.
-- `FIREBASE_PROJECT_ID`, `FIREBASE_CLIENT_EMAIL`, `FIREBASE_PRIVATE_KEY`: credenciais Firebase Admin para as APIs da Vercel.
-
-### Google Sheets
-
-A integração usa a Google Sheets API diretamente pela Vercel. Não é necessário Apps Script/`Código.gs`. A planilha vinculada é `1YeRPIxdWW0xNaajJnldl06Egv3DA1Utnwq44pcSH374`, aba `gid=0`. Ative a Google Sheets API no projeto Google Cloud da service account e compartilhe a planilha como Editor com `GOOGLE_SERVICE_ACCOUNT_EMAIL` (ou `FIREBASE_CLIENT_EMAIL` quando as mesmas credenciais forem usadas).
-
-
-## V42 — compatibilidade com Vercel Hobby
-- O cron da fila do Google Sheets foi alterado de horário (`0 * * * *`) para uma execução diária (`30 10 * * *`), compatível com o plano Hobby.
-- A sincronização imediata e sequencial continua ocorrendo ao salvar/atualizar vendas e ao entrar no sistema; o cron diário é apenas uma redundância.
-- A reconciliação permanece em `0 11 * * *` (aprox. 08:00 no horário de São Paulo). No plano Hobby, a Vercel pode executar tarefas diárias dentro da janela da hora agendada.
-
-
-## Deploy-safe temporário
-Esta variante remove apenas os Cron Jobs e a configuração explícita de duração do vercel.json para isolar falhas na etapa `Deploying outputs`. As APIs continuam sendo detectadas automaticamente pela Vercel e a sincronização imediata das vendas continua disponível. O fechamento FCA e a reconciliação diária automática ficam temporariamente sem agendamento até reativarmos um cron único depois que o deploy base estiver estável.
-
-
-## Deploy V42 — função única
-Para reduzir o empacotamento e evitar falhas na etapa `Deploying outputs` do plano Hobby, todas as rotas Node agora passam por uma única Vercel Function: `/api/backend?action=...`. Os handlers internos ficam em `server/handlers/` e não são publicados como funções separadas.

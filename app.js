@@ -11,7 +11,7 @@ import { CommissionAdjustmentsRepository } from './modules/commission-adjustment
 import { TeamsRepository } from './modules/teams-repository.js';
 import { TeamLogoStore, MAX_TEAM_LOGO_BYTES } from './modules/team-logo-store.js';
 import { auth, loginAccount, logoutAccount, watchSession } from './modules/firebase.js';
-import { PREVIEW_LOGIN_ENABLED, authenticatePreview, resolvePreviewIdentity } from './modules/runtime.js';
+import { PREVIEW_LOGIN_ENABLED, authenticatePreview, previewCredentials, resolvePreviewIdentity } from './modules/runtime.js';
 import { loadingState, errorState, emptyState, pageHeader } from './modules/ui.js';
 
 const COMMON_ITEMS = [
@@ -54,7 +54,7 @@ let teamMemberPhotoUrlByName = new Map();
 
 const $ = s => document.querySelector(s);
 const loginView=$('#loginView'), appView=$('#appView'), loginForm=$('#loginForm'), loginError=$('#loginError');
-const emailInput=$('#email'), passwordInput=$('#password'), firstAccessButton=$('#firstAccessButton'), forgotPasswordButton=$('#forgotPasswordButton'), firstAccessView=$('#firstAccessView'), passwordResetView=$('#passwordResetView'), firstAccessForm=$('#firstAccessForm'), passwordResetForm=$('#passwordResetForm'), loginIdentity=$('#loginIdentity'), loginIdentityAvatar=$('#loginIdentityAvatar'), loginIdentityName=$('#loginIdentityName'), loginIdentityMeta=$('#loginIdentityMeta'), loginPasswordStep=$('#loginPasswordStep'), changeLoginUser=$('#changeLoginUser'), loginPanel=document.querySelector('.login-panel'), sidebar=$('#sidebar'), sidebarNav=$('#sidebarNav');
+const emailInput=$('#email'), passwordInput=$('#password'), firstAccessButton=$('#firstAccessButton'), loginIdentity=$('#loginIdentity'), loginIdentityAvatar=$('#loginIdentityAvatar'), loginIdentityName=$('#loginIdentityName'), loginIdentityMeta=$('#loginIdentityMeta'), loginPasswordStep=$('#loginPasswordStep'), changeLoginUser=$('#changeLoginUser'), sidebar=$('#sidebar'), sidebarNav=$('#sidebarNav');
 const content=$('#content'), userName=$('#userName'), userRole=$('#userRole'), userAvatar=$('#userAvatar');
 const mobileOverlay=$('#mobileOverlay'), modalHost=$('#modalHost');
 const profileTrigger=$('#profileTrigger'), profileDrawer=$('#profileDrawer'), profileOverlay=$('#profileOverlay'), profileCloseButton=$('#profileCloseButton');
@@ -67,10 +67,8 @@ sidebarTooltip.className='sidebar-hover-tooltip';
 sidebarTooltip.hidden=true;
 sidebarTooltip.setAttribute('role','tooltip');
 document.body.append(sidebarTooltip);
-const FIRST_ACCESS_DEVICE_KEY='unifahe.firstAccessCompleted';
-function firstAccessCompletedOnDevice(){ try{return localStorage.getItem(FIRST_ACCESS_DEVICE_KEY)==='1';}catch{return false;} }
-function syncFirstAccessButton(){ if(firstAccessButton) firstAccessButton.hidden=PREVIEW_LOGIN_ENABLED||firstAccessCompletedOnDevice(); }
-syncFirstAccessButton();
+document.querySelector('.demo-access')?.toggleAttribute('hidden',!PREVIEW_LOGIN_ENABLED);
+if(firstAccessButton) firstAccessButton.hidden=PREVIEW_LOGIN_ENABLED;
 
 function refreshIcons(){ if(window.lucide) window.lucide.createIcons({attrs:{'stroke-width':1.9}}); }
 function toast(message, type='ok'){
@@ -139,7 +137,7 @@ async function loadLoginIdentityPhoto(identity,identifier){
 }
 async function resolveProductionIdentity(raw){
   try{
-    const response=await fetch(`/api/backend?action=access-profile?login=${encodeURIComponent(raw)}`);
+    const response=await fetch(`/api/access-profile?login=${encodeURIComponent(raw)}`);
     if(response.status===404) return null;
     const payload=await response.json().catch(()=>({}));
     if(!response.ok) throw new Error(payload.error||'Não foi possível localizar o acesso.');
@@ -248,79 +246,23 @@ function refreshProfileSummary(){
 function openProfileDrawer(){ profileDrawer.classList.add('is-open'); profileOverlay.classList.add('visible'); profileTrigger.setAttribute('aria-expanded','true'); refreshProfileSummary(); refreshIcons(); }
 function closeProfileDrawer(){ profileDrawer.classList.remove('is-open'); profileOverlay.classList.remove('visible'); profileTrigger.setAttribute('aria-expanded','false'); }
 
-function setLoginFlow(mode='login'){
-  const isLogin=mode==='login';
-  loginIdentity.hidden=!isLogin;
-  loginForm.hidden=!isLogin;
-  firstAccessView.hidden=mode!=='first-access';
-  passwordResetView.hidden=mode!=='reset';
-  loginPanel?.classList.toggle('mode-expanded',!isLogin);
-  if(isLogin){
-    syncFirstAccessButton();
-    requestAnimationFrame(()=>emailInput.focus());
-  }
+function openFirstAccessModal(){
+  openModal(`<div class="mini-modal first-access-modal"><div class="modal-head"><div><span class="section-kicker">PRIMEIRO ACESSO</span><h3>Crie seu acesso</h3><p>Selecione seu nome, escolha um usuário e defina sua senha. O cadastro é salvo no Firebase.</p></div><button class="modal-close" data-close-modal><i data-lucide="x"></i></button></div><form id="firstAccessForm" class="first-access-form"><label class="form-field"><span>Seu nome</span><select name="seller_name" required><option value="">Selecione</option>${SELLERS.map(name=>`<option value="${escapeHTML(name)}">${escapeHTML(name)}</option>`).join('')}</select></label><label class="form-field"><span>Login</span><input name="login" autocomplete="username" placeholder="ex.: caue.galates" required></label><div class="first-access-passwords"><label class="form-field"><span>Senha</span><input name="password" type="password" autocomplete="new-password" minlength="8" placeholder="Mínimo 8 caracteres" required></label><label class="form-field"><span>Confirmar senha</span><input name="confirm_password" type="password" autocomplete="new-password" minlength="8" required></label></div><label class="form-field first-access-code"><span>Código de primeiro acesso</span><input name="access_code" autocomplete="one-time-code" placeholder="Informe o código fornecido pelo gestor" required></label><div class="first-access-security"><i data-lucide="shield-check"></i><span>O usuário é criado pela API da Vercel no Firebase Authentication e vinculado ao seu perfil comercial.</span></div><div class="modal-actions"><button type="button" class="secondary-action" data-close-modal>Cancelar</button><button type="submit" class="primary-action"><i data-lucide="user-plus"></i>Criar e entrar</button></div></form></div>`);
+  const form=$('#firstAccessForm');
+  form.onsubmit=async event=>{
+    event.preventDefault();const fd=new FormData(form),password=String(fd.get('password')||''),confirm=String(fd.get('confirm_password')||''),submit=form.querySelector('button[type=submit]');
+    if(password!==confirm){toast('As senhas não conferem.','error');return;}
+    submit.disabled=true;submit.innerHTML='<i data-lucide="loader-circle" class="spin"></i>Criando acesso';refreshIcons();
+    try{
+      const response=await fetch('/api/first-access',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({seller_name:fd.get('seller_name'),login:fd.get('login'),password,access_code:fd.get('access_code')})});
+      const payload=await response.json().catch(()=>({}));if(!response.ok)throw new Error(payload.error||'Não foi possível criar o acesso.');
+      closeModal();emailInput.value=String(fd.get('login')||'');passwordInput.value=password;await revealLoginProgressiveStep();
+      const profile=await loginAccount(payload.email,password);await signIn(profile);toast('Primeiro acesso criado com sucesso.');
+    }catch(error){submit.disabled=false;submit.innerHTML='<i data-lucide="user-plus"></i>Criar e entrar';refreshIcons();toast(error.message||'Não foi possível criar o primeiro acesso.','error');}
+  };
   refreshIcons();
 }
-function populateFirstAccessSellers(){
-  const select=firstAccessForm?.elements?.seller_name;
-  if(!select || select.options.length>1) return;
-  SELLERS.forEach(name=>select.add(new Option(name,name)));
-}
-function openFirstAccessInline(){
-  populateFirstAccessSellers();
-  const typed=emailInput.value.trim();
-  if(typed && firstAccessForm?.elements?.login) firstAccessForm.elements.login.value=typed;
-  $('#firstAccessError').textContent='';
-  setLoginFlow('first-access');
-  setTimeout(()=>firstAccessForm?.elements?.seller_name?.focus(),80);
-}
-function openPasswordResetInline(){
-  const typed=emailInput.value.trim();
-  if(passwordResetForm?.elements?.login) passwordResetForm.elements.login.value=typed;
-  $('#passwordResetError').textContent='';
-  setLoginFlow('reset');
-  setTimeout(()=>passwordResetForm?.elements?.login?.focus(),80);
-}
-firstAccessButton?.addEventListener('click',openFirstAccessInline);
-forgotPasswordButton?.addEventListener('click',openPasswordResetInline);
-$('#cancelFirstAccess')?.addEventListener('click',()=>setLoginFlow('login'));
-$('#cancelPasswordReset')?.addEventListener('click',()=>setLoginFlow('login'));
-
-firstAccessForm?.addEventListener('submit',async event=>{
-  event.preventDefault();
-  const fd=new FormData(firstAccessForm),password=String(fd.get('password')||''),confirm=String(fd.get('confirm_password')||''),submit=firstAccessForm.querySelector('button[type=submit]'),errorEl=$('#firstAccessError');
-  errorEl.textContent='';
-  if(password!==confirm){errorEl.textContent='As senhas não conferem.';return;}
-  submit.disabled=true;submit.innerHTML='<i data-lucide="loader-circle" class="spin"></i>Criando acesso';refreshIcons();
-  try{
-    const response=await fetch('/api/backend?action=first-access',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({seller_name:fd.get('seller_name'),login:fd.get('login'),password,access_code:fd.get('access_code')})});
-    const payload=await response.json().catch(()=>({}));if(!response.ok)throw new Error(payload.error||'Não foi possível criar o acesso.');
-    try{localStorage.setItem(FIRST_ACCESS_DEVICE_KEY,'1');}catch{}
-    syncFirstAccessButton();
-    emailInput.value=String(fd.get('login')||'');passwordInput.value=password;
-    firstAccessForm.reset();setLoginFlow('login');await revealLoginProgressiveStep();
-    const profile=await loginAccount(payload.email,password);await signIn(profile);toast('Primeiro acesso criado com sucesso.');
-  }catch(error){errorEl.textContent=error.message||'Não foi possível criar o primeiro acesso.';}
-  finally{submit.disabled=false;submit.innerHTML='<i data-lucide="user-plus"></i>Criar acesso';refreshIcons();}
-});
-
-passwordResetForm?.addEventListener('submit',async event=>{
-  event.preventDefault();
-  const fd=new FormData(passwordResetForm),password=String(fd.get('password')||''),confirm=String(fd.get('confirm_password')||''),submit=passwordResetForm.querySelector('button[type=submit]'),errorEl=$('#passwordResetError');
-  errorEl.textContent='';
-  if(password!==confirm){errorEl.textContent='As senhas não conferem.';return;}
-  submit.disabled=true;submit.innerHTML='<i data-lucide="loader-circle" class="spin"></i>Salvando';refreshIcons();
-  try{
-    const response=await fetch('/api/backend?action=reset-password',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({login:fd.get('login'),password,reset_code:fd.get('reset_code')})});
-    const payload=await response.json().catch(()=>({}));if(!response.ok)throw new Error(payload.error||'Não foi possível redefinir a senha.');
-    try{localStorage.setItem(FIRST_ACCESS_DEVICE_KEY,'1');}catch{}
-    syncFirstAccessButton();
-    emailInput.value=String(fd.get('login')||'');passwordInput.value='';
-    passwordResetForm.reset();setLoginFlow('login');await revealLoginProgressiveStep();
-    toast('Senha redefinida. Entre com a nova senha.');
-  }catch(error){errorEl.textContent=error.message||'Não foi possível redefinir a senha.';}
-  finally{submit.disabled=false;submit.innerHTML='<i data-lucide="rotate-ccw-key"></i>Salvar nova senha';refreshIcons();}
-});
+firstAccessButton?.addEventListener('click',openFirstAccessModal);
 
 loginForm.addEventListener('submit', async e=>{
   e.preventDefault();
@@ -338,6 +280,16 @@ loginForm.addEventListener('submit', async e=>{
   }catch(error){ loginError.textContent=error.message||'Não foi possível entrar.'; }
   finally{ submit.disabled=false; submit.textContent='Entrar'; }
 });
+
+document.querySelectorAll('[data-demo]').forEach(button=>button.addEventListener('click',()=>{
+  const credentials=previewCredentials(button.dataset.demo);
+  emailInput.value=credentials.identifier||credentials.email;
+  passwordInput.value=credentials.password;
+  loginError.textContent='';
+  emailInput.dispatchEvent(new Event('input',{bubbles:true}));
+  revealLoginProgressiveStep();
+  passwordInput.dispatchEvent(new Event('input',{bubbles:true}));
+}));
 
 emailInput.addEventListener('input',scheduleLoginReveal);
 emailInput.addEventListener('blur',()=>{ if(emailInput.value.trim().length>=2) revealLoginProgressiveStep(); });
@@ -409,7 +361,6 @@ bindSidebarTooltip($('#logoutButton'));
 $('#logoutButton').addEventListener('click',signOut);
 
 async function signIn(user){
-  if(!PREVIEW_LOGIN_ENABLED){try{localStorage.setItem(FIRST_ACCESS_DEVICE_KEY,'1');}catch{} syncFirstAccessButton();}
   currentUser=user; currentPage=user.role==='auditoria'?'vendas':'inicio';
   userName.textContent=user.name; userRole.textContent=loginRoleLabel(user.role); userTeam.textContent=user.team||user.time||'Time não informado'; userSector.textContent=user.sector||user.setor||'Comercial';
   loginView.classList.add('is-hidden'); appView.classList.remove('is-hidden');
@@ -425,7 +376,7 @@ async function signOut(){
 }
 function resetSignedOutView(){
   if(activeProfilePhotoUrl){URL.revokeObjectURL(activeProfilePhotoUrl);activeProfilePhotoUrl='';}
-  currentUser=null; salesCache=[]; destroyCharts(); clearTeamVisualUrls(); closeModal(); appView.classList.add('is-hidden'); loginView.classList.remove('is-hidden'); emailInput.value=''; passwordInput.value=''; hideLoginProgressiveStep(); setLoginFlow('login'); syncFirstAccessButton(); closeMobileMenu();
+  currentUser=null; salesCache=[]; destroyCharts(); clearTeamVisualUrls(); closeModal(); appView.classList.add('is-hidden'); loginView.classList.remove('is-hidden'); emailInput.value=''; passwordInput.value=''; hideLoginProgressiveStep(); closeMobileMenu();
 }
 async function refreshResolvedUserTeam(){
   if(currentUser?.role!=='vendedor') return;
@@ -448,7 +399,7 @@ async function drainSheetQueueInBackground(){
   try{
     for(let pass=0;pass<8;pass++){
       const headers=await firebaseAuthHeaders();
-      const response=await fetch('/api/backend?action=sheet-sync-queue',{
+      const response=await fetch('/api/sheet-sync-queue',{
         method:'POST',
         headers:{...headers,'Content-Type':'application/json'},
         body:JSON.stringify({limit:20})
@@ -475,7 +426,7 @@ async function refreshSheetHealthStatus(){
   }
   try{
     const headers=await firebaseAuthHeaders();
-    const response=await fetch('/api/backend?action=sheet-health',{headers});
+    const response=await fetch('/api/sheet-health',{headers});
     const payload=await response.json().catch(()=>({}));
     if(!response.ok) throw new Error(payload.error||'Falha ao consultar planilha.');
     const health=payload.health;
@@ -728,7 +679,7 @@ async function loadTeamMemberPhotos(configs){
   }
   try{
     const headers=await firebaseAuthHeaders();
-    const response=await fetch('/api/backend?action=team-profiles',{headers});
+    const response=await fetch('/api/team-profiles',{headers});
     const payload=await response.json().catch(()=>({}));
     if(!response.ok) throw new Error(payload.error||'Não foi possível carregar as fotos do time.');
     for(const profile of payload.profiles||[]){if(profile?.name&&profile?.photo_url&&names.includes(profile.name))teamMemberPhotoUrlByName.set(profile.name,profile.photo_url);}

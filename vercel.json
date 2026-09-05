@@ -1,17 +1,19 @@
 {
+  "functions": {
+    "api/**/*.js": { "maxDuration": 60 }
+  },
   "headers": [
     {
       "source": "/(.*)",
       "headers": [
-        {
-          "key": "X-Content-Type-Options",
-          "value": "nosniff"
-        },
-        {
-          "key": "Referrer-Policy",
-          "value": "strict-origin-when-cross-origin"
-        }
+        { "key": "X-Content-Type-Options", "value": "nosniff" },
+        { "key": "Referrer-Policy", "value": "strict-origin-when-cross-origin" }
       ]
     }
+  ],
+  "crons": [
+    { "path": "/api/fca-daily-close", "schedule": "59 2 * * 2-6" },
+    { "path": "/api/sheet-sync-queue", "schedule": "0 * * * *" },
+    { "path": "/api/sheet-reconcile", "schedule": "0 11 * * *" }
   ]
 }

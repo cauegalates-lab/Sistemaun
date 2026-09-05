@@ -31,7 +31,7 @@ async function getSaleSnapshot(id) {
 
 async function requestSheetQueue(saleId='') {
   const token = await auth.currentUser.getIdToken();
-  const response = await fetch('/api/backend?action=sheet-sync-queue', {
+  const response = await fetch('/api/sheet-sync-queue', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
     body: JSON.stringify({ sale_id: saleId, limit: 20 })
@@ -43,7 +43,7 @@ async function requestSheetQueue(saleId='') {
 
 async function requestSheetDelete(saleId) {
   const token = await auth.currentUser.getIdToken();
-  const response = await fetch('/api/backend?action=sheet-delete', {
+  const response = await fetch('/api/sheet-delete', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
     body: JSON.stringify({ sale_id: saleId })

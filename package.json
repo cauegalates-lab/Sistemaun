@@ -1,14 +1,10 @@
 {
   "name": "painel-comercial-unifahe",
-  "version": "42.1.0",
+  "version": "41.0.0",
   "private": true,
   "type": "module",
   "dependencies": {
     "firebase-admin": "^13.4.0",
     "google-auth-library": "^9.15.1"
-  },
-  "allowScripts": {
-    "@firebase/util": true,
-    "protobufjs": true
   }
 }
