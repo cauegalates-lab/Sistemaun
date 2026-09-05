@@ -110,11 +110,11 @@ Antes do deploy:
 ### Fluxo da fila
 
 - Ao criar ou alterar uma venda, ela recebe `sheet_sync_status: pending`.
-- O front-end chama `/api/sheet-sync-queue` em segundo plano.
+- O front-end chama `/api/backend?action=sheet-sync-queue` em segundo plano.
 - A função adquire um lock no Firestore e processa as vendas **uma por vez**.
 - Erros ficam registrados em `sheet_sync_error` e voltam para a fila nas próximas tentativas.
 - Há uma passagem automática da fila a cada hora pela Vercel.
-- `/api/sheet-reconcile` roda diariamente às **11:00 UTC**, correspondente a **08:00 em America/Sao_Paulo**, e compara IDs do Firestore com IDs da planilha, repara faltantes e remove linhas órfãs.
+- `/api/backend?action=sheet-reconcile` roda diariamente às **11:00 UTC**, correspondente a **08:00 em America/Sao_Paulo**, e compara IDs do Firestore com IDs da planilha, repara faltantes e remove linhas órfãs.
 - O resultado é salvo em `system_health/google_sheets`.
 
 Endpoints envolvidos:
@@ -158,7 +158,7 @@ Nesse modo continuam disponíveis os usuários de teste e os repositórios locai
 - Acessos rápidos removidos da interface. O modo `?preview=1` continua disponível apenas para desenvolvimento, sem botões visíveis.
 - Primeiro acesso agora abre integrado à própria página, sem modal/card.
 - Após criar o primeiro acesso com sucesso, este navegador grava `unifahe.firstAccessCompleted`; o botão de primeiro acesso deixa de aparecer nesse dispositivo. Limpar os dados do navegador faz o botão reaparecer.
-- Recuperação de senha integrada ao login por `/api/reset-password`. O código mestre fica somente em `PASSWORD_RESET_CODE` nas variáveis da Vercel e nunca é enviado ao front-end.
+- Recuperação de senha integrada ao login por `/api/backend?action=reset-password`. O código mestre fica somente em `PASSWORD_RESET_CODE` nas variáveis da Vercel e nunca é enviado ao front-end.
 - A redefinição altera a senha no Firebase Authentication e revoga sessões anteriores do usuário.
 
 ### Variáveis obrigatórias do login
@@ -180,3 +180,7 @@ A integração usa a Google Sheets API diretamente pela Vercel. Não é necessá
 
 ## Deploy-safe temporário
 Esta variante remove apenas os Cron Jobs e a configuração explícita de duração do vercel.json para isolar falhas na etapa `Deploying outputs`. As APIs continuam sendo detectadas automaticamente pela Vercel e a sincronização imediata das vendas continua disponível. O fechamento FCA e a reconciliação diária automática ficam temporariamente sem agendamento até reativarmos um cron único depois que o deploy base estiver estável.
+
+
+## Deploy V42 — função única
+Para reduzir o empacotamento e evitar falhas na etapa `Deploying outputs` do plano Hobby, todas as rotas Node agora passam por uma única Vercel Function: `/api/backend?action=...`. Os handlers internos ficam em `server/handlers/` e não são publicados como funções separadas.

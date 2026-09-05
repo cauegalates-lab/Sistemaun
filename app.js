@@ -139,7 +139,7 @@ async function loadLoginIdentityPhoto(identity,identifier){
 }
 async function resolveProductionIdentity(raw){
   try{
-    const response=await fetch(`/api/access-profile?login=${encodeURIComponent(raw)}`);
+    const response=await fetch(`/api/backend?action=access-profile?login=${encodeURIComponent(raw)}`);
     if(response.status===404) return null;
     const payload=await response.json().catch(()=>({}));
     if(!response.ok) throw new Error(payload.error||'Não foi possível localizar o acesso.');
@@ -293,7 +293,7 @@ firstAccessForm?.addEventListener('submit',async event=>{
   if(password!==confirm){errorEl.textContent='As senhas não conferem.';return;}
   submit.disabled=true;submit.innerHTML='<i data-lucide="loader-circle" class="spin"></i>Criando acesso';refreshIcons();
   try{
-    const response=await fetch('/api/first-access',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({seller_name:fd.get('seller_name'),login:fd.get('login'),password,access_code:fd.get('access_code')})});
+    const response=await fetch('/api/backend?action=first-access',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({seller_name:fd.get('seller_name'),login:fd.get('login'),password,access_code:fd.get('access_code')})});
     const payload=await response.json().catch(()=>({}));if(!response.ok)throw new Error(payload.error||'Não foi possível criar o acesso.');
     try{localStorage.setItem(FIRST_ACCESS_DEVICE_KEY,'1');}catch{}
     syncFirstAccessButton();
@@ -311,7 +311,7 @@ passwordResetForm?.addEventListener('submit',async event=>{
   if(password!==confirm){errorEl.textContent='As senhas não conferem.';return;}
   submit.disabled=true;submit.innerHTML='<i data-lucide="loader-circle" class="spin"></i>Salvando';refreshIcons();
   try{
-    const response=await fetch('/api/reset-password',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({login:fd.get('login'),password,reset_code:fd.get('reset_code')})});
+    const response=await fetch('/api/backend?action=reset-password',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({login:fd.get('login'),password,reset_code:fd.get('reset_code')})});
     const payload=await response.json().catch(()=>({}));if(!response.ok)throw new Error(payload.error||'Não foi possível redefinir a senha.');
     try{localStorage.setItem(FIRST_ACCESS_DEVICE_KEY,'1');}catch{}
     syncFirstAccessButton();
@@ -448,7 +448,7 @@ async function drainSheetQueueInBackground(){
   try{
     for(let pass=0;pass<8;pass++){
       const headers=await firebaseAuthHeaders();
-      const response=await fetch('/api/sheet-sync-queue',{
+      const response=await fetch('/api/backend?action=sheet-sync-queue',{
         method:'POST',
         headers:{...headers,'Content-Type':'application/json'},
         body:JSON.stringify({limit:20})
@@ -475,7 +475,7 @@ async function refreshSheetHealthStatus(){
   }
   try{
     const headers=await firebaseAuthHeaders();
-    const response=await fetch('/api/sheet-health',{headers});
+    const response=await fetch('/api/backend?action=sheet-health',{headers});
     const payload=await response.json().catch(()=>({}));
     if(!response.ok) throw new Error(payload.error||'Falha ao consultar planilha.');
     const health=payload.health;
@@ -728,7 +728,7 @@ async function loadTeamMemberPhotos(configs){
   }
   try{
     const headers=await firebaseAuthHeaders();
-    const response=await fetch('/api/team-profiles',{headers});
+    const response=await fetch('/api/backend?action=team-profiles',{headers});
     const payload=await response.json().catch(()=>({}));
     if(!response.ok) throw new Error(payload.error||'Não foi possível carregar as fotos do time.');
     for(const profile of payload.profiles||[]){if(profile?.name&&profile?.photo_url&&names.includes(profile.name))teamMemberPhotoUrlByName.set(profile.name,profile.photo_url);}
