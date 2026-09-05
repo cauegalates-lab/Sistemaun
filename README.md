@@ -170,3 +170,9 @@ Nesse modo continuam disponíveis os usuários de teste e os repositórios locai
 ### Google Sheets
 
 A integração usa a Google Sheets API diretamente pela Vercel. Não é necessário Apps Script/`Código.gs`. A planilha vinculada é `1YeRPIxdWW0xNaajJnldl06Egv3DA1Utnwq44pcSH374`, aba `gid=0`. Ative a Google Sheets API no projeto Google Cloud da service account e compartilhe a planilha como Editor com `GOOGLE_SERVICE_ACCOUNT_EMAIL` (ou `FIREBASE_CLIENT_EMAIL` quando as mesmas credenciais forem usadas).
+
+
+## V42 — compatibilidade com Vercel Hobby
+- O cron da fila do Google Sheets foi alterado de horário (`0 * * * *`) para uma execução diária (`30 10 * * *`), compatível com o plano Hobby.
+- A sincronização imediata e sequencial continua ocorrendo ao salvar/atualizar vendas e ao entrar no sistema; o cron diário é apenas uma redundância.
+- A reconciliação permanece em `0 11 * * *` (aprox. 08:00 no horário de São Paulo). No plano Hobby, a Vercel pode executar tarefas diárias dentro da janela da hora agendada.
