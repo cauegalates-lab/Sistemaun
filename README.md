@@ -176,3 +176,7 @@ A integração usa a Google Sheets API diretamente pela Vercel. Não é necessá
 - O cron da fila do Google Sheets foi alterado de horário (`0 * * * *`) para uma execução diária (`30 10 * * *`), compatível com o plano Hobby.
 - A sincronização imediata e sequencial continua ocorrendo ao salvar/atualizar vendas e ao entrar no sistema; o cron diário é apenas uma redundância.
 - A reconciliação permanece em `0 11 * * *` (aprox. 08:00 no horário de São Paulo). No plano Hobby, a Vercel pode executar tarefas diárias dentro da janela da hora agendada.
+
+
+## Deploy-safe temporário
+Esta variante remove apenas os Cron Jobs e a configuração explícita de duração do vercel.json para isolar falhas na etapa `Deploying outputs`. As APIs continuam sendo detectadas automaticamente pela Vercel e a sincronização imediata das vendas continua disponível. O fechamento FCA e a reconciliação diária automática ficam temporariamente sem agendamento até reativarmos um cron único depois que o deploy base estiver estável.
